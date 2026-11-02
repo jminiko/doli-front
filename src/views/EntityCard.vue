@@ -1,5 +1,5 @@
 <script setup>
-import { computed, inject, reactive, ref, watch } from 'vue'
+import { computed, inject, nextTick, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api'
 
@@ -14,6 +14,11 @@ const values = reactive({})
 const line = reactive({ product: '', description: '', qty: '1', unitPrice: '', vatRate: '' })
 const password = ref('')
 const trayLink = ref('')
+const picked = ref('')
+const tagInput = ref('')
+const descriptionSource = ref(false)
+const descriptionEditor = ref(null)
+const pickedFile = computed(() => form.value?.tray?.files?.find((file) => file.id === picked.value))
 const draft = reactive({})
 
 function fill(payload) {
@@ -26,9 +31,25 @@ function fill(payload) {
     if (route.query.thirdParty) values.thirdParty = String(route.query.thirdParty)
     if (route.query.project) values.project = String(route.query.project)
   }
+  if (payload.screen?.layout === 'service') {
+    if (!values.saleStatus) values.saleStatus = 'onsale'
+    if (!values.buyStatus) values.buyStatus = 'onbuy'
+    if (!values.durationUnit) values.durationUnit = 'hour'
+    if (!values.priceBasis) values.priceBasis = 'ht'
+    values.vatRate = String(values.vatRate ?? '20').replace(/\.0$/, '')
+    values.dateRangeRequired = values.dateRangeRequired === true || values.dateRangeRequired === 'true'
+    descriptionSource.value = false
+    nextTick(() => {
+      if (descriptionEditor.value) descriptionEditor.value.innerHTML = values.description || ''
+    })
+  }
   for (const field of payload.screen?.fields || []) {
     if (field.type === 'boolean') {
-      values[field.name] = values[field.name] === true || values[field.name] === 'true'
+      const current = values[field.name]
+      values[field.name] = current == null || current === '' ? null : current === true || current === 'true'
+    } else if (field.multiple) {
+      const current = values[field.name]
+      values[field.name] = Array.isArray(current) ? current.map(String) : (current ? [String(current)] : [])
     } else if (values[field.name] == null) {
       values[field.name] = ''
     } else if (field.type === 'ref' || field.type === 'enum') {
@@ -199,6 +220,55 @@ function badgeClass(status) {
 }
 
 const project = computed(() => form.value?.screen?.layout === 'project')
+const service = computed(() => form.value?.screen?.layout === 'service')
+const vatRates = computed(() => {
+  const rates = ['0', '2.1', '5.5', '10', '20']
+  const current = String(values.vatRate ?? '')
+  return current && !rates.includes(current) ? [current, ...rates] : rates
+})
+const tagList = computed(() => String(values.tags || '').split(',').map((item) => item.trim()).filter(Boolean))
+
+function format(command, argument) {
+  descriptionEditor.value?.focus()
+  document.execCommand(command, false, argument)
+  values.description = descriptionEditor.value?.innerHTML || ''
+}
+
+function addTag() {
+  const text = tagInput.value.trim()
+  if (!text || tagList.value.includes(text)) {
+    tagInput.value = ''
+    return
+  }
+  values.tags = [...tagList.value, text].join(', ')
+  tagInput.value = ''
+}
+
+function openPublicUrl() {
+  const url = String(values.publicUrl || '')
+  if (/^https?:\/\//i.test(url)) window.open(url, '_blank', 'noopener')
+}
+
+function askUrl(fallback) {
+  const url = window.prompt('URL', fallback)
+  return url || ''
+}
+
+function insertLink() {
+  const url = askUrl('https://')
+  if (url) format('createLink', url)
+}
+
+function insertImage() {
+  const url = askUrl('https://')
+  if (url) format('insertImage', url)
+}
+
+watch(descriptionSource, (on) => {
+  if (!on) nextTick(() => {
+    if (descriptionEditor.value) descriptionEditor.value.innerHTML = values.description || ''
+  })
+})
 const viewing = computed(() => project.value && !!form.value?.row?.id && route.query.mode !== 'edit')
 const creating = computed(() => project.value && !form.value?.row?.id)
 const heading = computed(() => creating.value ? (nav.value?.chrome?.['menu.newProject'] || form.value.screen.title) : form.value.screen.title)
@@ -243,6 +313,27 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
         </tr>
       </tbody>
     </table>
+    <div class="fiche-layout" :class="{ 'with-files': !!form.tray }">
+    <aside v-if="form.tray" class="fiche-files">
+      <header>{{ form.tray.title }} <span v-if="form.tray.files.length">{{ form.tray.files.length }}</span></header>
+      <ul>
+        <li v-for="file in form.tray.files" :key="file.id" :class="{ selected: picked === file.id }" @click="picked = file.id">
+          <i class="bi" :class="file.name?.toLowerCase().endsWith('.pdf') ? 'bi-file-earmark-pdf' : 'bi-file-earmark'"></i>
+          <span>{{ file.name }}</span>
+        </li>
+      </ul>
+      <p v-if="pickedFile" class="fiche-preview-name">{{ pickedFile.name }}</p>
+      <iframe v-if="pickedFile && pickedFile.name?.toLowerCase().endsWith('.pdf')" class="fiche-preview" :src="`/api/plugins/filemanager/raw/${pickedFile.id}`" :title="pickedFile.name"></iframe>
+      <p v-else class="opacitymedium">{{ form.tray.labels.preview }}</p>
+      <p v-if="trayLink">{{ form.tray.labels.link }} : <a :href="trayLink">{{ trayLink }}</a></p>
+      <form @submit.prevent="run(() => trayUpload($event))">
+        <input name="upload" type="file" required />
+        <button class="butAction" type="submit">{{ form.tray.labels.upload }}</button>
+      </form>
+      <button v-if="pickedFile && !pickedFile.virtual" type="button" @click="run(() => trayAct('share', { id: pickedFile.id }))">{{ form.tray.labels.share }}</button>
+      <button v-if="pickedFile && !pickedFile.virtual" type="button" @click="run(() => trayAct('sign', { id: pickedFile.id, provider: 'internal' }))">{{ form.tray.labels.sign }}</button>
+    </aside>
+    <div>
     <div class="tabs">
       <template v-if="form.tabs?.length && form.row.id">
         <router-link v-for="item in form.tabs" :key="item.code" custom :to="tabTo(item)" v-slot="{ href, navigate }">
@@ -252,24 +343,6 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
       <router-link v-else class="tab tabactive" :to="route.fullPath">{{ heading }}</router-link>
       <router-link class="tab" :to="`/screens/${form.screen.id}`">{{ nav.chrome['action.backToList'] || nav.chrome['action.back'] }}</router-link>
     </div>
-    <details v-if="form.tray" class="doc-tray" open>
-      <summary>{{ form.tray.title }}</summary>
-      <p class="opacitymedium">{{ form.tray.hint }}</p>
-      <ul>
-        <li v-for="file in form.tray.files" :key="file.id">
-          <a :href="`/api/plugins/filemanager/raw/${file.id}`">{{ file.name }}</a>
-          <span v-if="file.expires" class="opacitymedium">{{ file.expires }}</span>
-          <span v-if="file.signed" class="opacitymedium">{{ form.tray.labels.sign }}</span>
-          <button v-if="!file.virtual" type="button" @click="run(() => trayAct('share', { id: file.id }))">{{ form.tray.labels.share }}</button>
-          <button v-if="!file.virtual" type="button" @click="run(() => trayAct('sign', { id: file.id, provider: 'internal' }))">{{ form.tray.labels.sign }}</button>
-        </li>
-      </ul>
-      <p v-if="trayLink">{{ form.tray.labels.link }} : <a :href="trayLink">{{ trayLink }}</a></p>
-      <form class="library-tools" @submit.prevent="run(() => trayUpload($event))">
-        <input name="upload" class="flat" type="file" required />
-        <button class="butAction" type="submit">{{ form.tray.labels.upload }}</button>
-      </form>
-    </details>
     <div v-if="form.panel" class="tabBar">
       <div v-if="project" class="project-banner">
         <div>
@@ -374,13 +447,19 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
               <tr v-for="field in form.panel.editor.fields" :key="field.name">
                 <td class="titlefield">{{ field.label }}</td>
                 <td>
-                  <textarea v-if="field.type === 'text'" v-model="draft[field.name]" class="flat" rows="4" :required="field.required" />
-                  <select v-else-if="field.type === 'ref'" v-model="draft[field.name]" class="flat" :required="field.required">
-                    <option value=""></option>
+                  <textarea v-if="field.type === 'text'" v-model="draft[field.name]" class="flat" :rows="!field.max || field.max > 255 ? 4 : 2" :required="field.required" />
+                  <span v-else-if="field.type === 'boolean'" class="field-bool">
+                    <label><input type="radio" :name="'tab-' + field.name" :value="true" v-model="draft[field.name]" /> {{ nav.chrome['action.yes'] }}</label>
+                    <label><input type="radio" :name="'tab-' + field.name" :value="false" v-model="draft[field.name]" /> {{ nav.chrome['action.no'] }}</label>
+                  </span>
+                  <select v-else-if="field.type === 'ref' || field.type === 'enum'" v-model="draft[field.name]" class="flat" :multiple="field.multiple" :required="field.required && !field.multiple">
+                    <option v-if="!field.multiple" value=""></option>
                     <option v-for="option in field.options || []" :key="option.value" :value="String(option.value)">{{ option.label }}</option>
                   </select>
                   <input v-else-if="field.type === 'date'" v-model="draft[field.name]" class="flat" type="date" :required="field.required" />
-                  <input v-else v-model="draft[field.name]" class="flat" :required="field.required" />
+                  <input v-else-if="field.type === 'decimal'" v-model="draft[field.name]" class="flat" type="number" step="0.01" :required="field.required" />
+                  <input v-else-if="field.type === 'integer'" v-model="draft[field.name]" class="flat" type="number" step="1" :required="field.required" />
+                  <input v-else v-model="draft[field.name]" class="flat" :type="field.type === 'email' || field.type === 'tel' || field.type === 'url' ? field.type : 'text'" :required="field.required" />
                 </td>
               </tr>
             </tbody>
@@ -415,9 +494,9 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
               <tr>
                 <td class="titlefield">{{ nav.chrome['field.utilisation'] }}</td>
                 <td class="usage-list">
-                  <label><input type="checkbox" disabled :checked="form.row.values.usageOpportunity" /> {{ nav.chrome['field.usageOpportunity'] }}</label>
-                  <label><input type="checkbox" disabled :checked="form.row.values.usageTask" /> {{ nav.chrome['field.usageTask'] }}</label>
-                  <label><input type="checkbox" disabled :checked="form.row.values.usageBillTime" /> {{ nav.chrome['field.usageBillTime'] }}</label>
+                  <span>{{ nav.chrome['field.usageOpportunity'] }} : {{ form.row.values.usageOpportunity ? nav.chrome['action.yes'] : nav.chrome['action.no'] }}</span>
+                  <span>{{ nav.chrome['field.usageTask'] }} : {{ form.row.values.usageTask ? nav.chrome['action.yes'] : nav.chrome['action.no'] }}</span>
+                  <span>{{ nav.chrome['field.usageBillTime'] }} : {{ form.row.values.usageBillTime ? nav.chrome['action.yes'] : nav.chrome['action.no'] }}</span>
                 </td>
               </tr>
               <template v-if="form.row.values.usageOpportunity">
@@ -474,18 +553,36 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
         <tbody>
           <tr>
             <td class="titlefield">{{ meta('ref').label }}</td>
-            <td><input id="ref" v-model="values.ref" class="flat" required /></td>
+            <td>
+              <textarea v-if="meta('ref').type === 'text'" id="ref" v-model="values.ref" class="flat" rows="2" required />
+              <input v-else id="ref" v-model="values.ref" class="flat" required />
+            </td>
           </tr>
           <tr>
             <td class="titlefield">{{ meta('title').label }}</td>
-            <td><input id="title" v-model="values.title" class="flat" required /></td>
+            <td>
+              <textarea v-if="meta('title').type === 'text'" id="title" v-model="values.title" class="flat" rows="2" required />
+              <input v-else id="title" v-model="values.title" class="flat" required />
+            </td>
           </tr>
           <tr>
             <td class="titlefield">{{ nav.chrome['field.utilisation'] }}</td>
             <td class="usage-list">
-              <label><input id="usageOpportunity" v-model="values.usageOpportunity" type="checkbox" /> {{ nav.chrome['field.usageOpportunity'] }}</label>
-              <label><input id="usageTask" v-model="values.usageTask" type="checkbox" @change="onTask" /> {{ nav.chrome['field.usageTask'] }}</label>
-              <label><input id="usageBillTime" v-model="values.usageBillTime" type="checkbox" @change="onBillTime" /> {{ nav.chrome['field.usageBillTime'] }}</label>
+              <span class="field-bool">
+                <span>{{ nav.chrome['field.usageOpportunity'] }}</span>
+                <label><input v-model="values.usageOpportunity" type="radio" name="usageOpportunity" :value="true" /> {{ nav.chrome['action.yes'] }}</label>
+                <label><input v-model="values.usageOpportunity" type="radio" name="usageOpportunity" :value="false" /> {{ nav.chrome['action.no'] }}</label>
+              </span>
+              <span class="field-bool">
+                <span>{{ nav.chrome['field.usageTask'] }}</span>
+                <label><input v-model="values.usageTask" type="radio" name="usageTask" :value="true" @change="onTask" /> {{ nav.chrome['action.yes'] }}</label>
+                <label><input v-model="values.usageTask" type="radio" name="usageTask" :value="false" @change="onTask" /> {{ nav.chrome['action.no'] }}</label>
+              </span>
+              <span class="field-bool">
+                <span>{{ nav.chrome['field.usageBillTime'] }}</span>
+                <label><input v-model="values.usageBillTime" type="radio" name="usageBillTime" :value="true" @change="onBillTime" /> {{ nav.chrome['action.yes'] }}</label>
+                <label><input v-model="values.usageBillTime" type="radio" name="usageBillTime" :value="false" @change="onBillTime" /> {{ nav.chrome['action.no'] }}</label>
+              </span>
             </td>
           </tr>
           <tr>
@@ -504,17 +601,17 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
                 <option value=""></option>
                 <option v-for="option in meta('oppStatus').options" :key="option.value" :value="String(option.value)">{{ option.label }}</option>
               </select>
-              <input id="oppPercent" v-model="values.oppPercent" class="flat" inputmode="decimal" />
+              <input id="oppPercent" v-model="values.oppPercent" class="flat" type="number" step="0.01" />
               <span>%</span>
             </td>
           </tr>
           <tr v-show="values.usageOpportunity">
             <td class="titlefield">{{ nav.chrome['field.oppAmount'] }}</td>
-            <td><input id="oppAmount" v-model="values.oppAmount" class="flat" inputmode="decimal" /></td>
+            <td><input id="oppAmount" v-model="values.oppAmount" class="flat" type="number" step="0.01" /></td>
           </tr>
           <tr>
             <td class="titlefield">{{ nav.chrome['field.budget'] }}</td>
-            <td><input id="budget" v-model="values.budget" class="flat" inputmode="decimal" /></td>
+            <td><input id="budget" v-model="values.budget" class="flat" type="number" step="0.01" /></td>
           </tr>
           <tr>
             <td class="titlefield">{{ nav.chrome['field.projectDateStart'] }}</td>
@@ -545,6 +642,164 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
         <router-link v-else class="butActionDelete" :to="`/screens/${form.screen.id}/${form.row.id}`">{{ nav.chrome['action.cancel'] }}</router-link>
       </div>
     </form>
+    <form v-else-if="service" class="tabBar" @submit.prevent="run(save)">
+      <table class="border tableforfield">
+        <tbody>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.ref'] }}</td>
+            <td><input id="ref" v-model="values.ref" class="flat" maxlength="40" /></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['field.label'] }}</td>
+            <td><input id="label" v-model="values.label" class="flat" required /></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.sale'] }}</td>
+            <td>
+              <select id="saleStatus" v-model="values.saleStatus" class="flat">
+                <option value="onsale">{{ nav.chrome['service.onsale'] }}</option>
+                <option value="offsale">{{ nav.chrome['service.offsale'] }}</option>
+              </select>
+            </td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.buyState'] }}</td>
+            <td>
+              <select id="buyStatus" v-model="values.buyStatus" class="flat">
+                <option value="onbuy">{{ nav.chrome['service.onbuy'] }}</option>
+                <option value="offbuy">{{ nav.chrome['service.offbuy'] }}</option>
+              </select>
+            </td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['field.description'] }}</td>
+            <td>
+              <div class="rte">
+                <div class="rte-bar">
+                  <select class="flat" aria-label="format" @change="format('formatBlock', $event.target.value); $event.target.value = 'p'">
+                    <option value="p">{{ nav.chrome['service.format'] }}</option>
+                    <option value="h2">H2</option>
+                    <option value="h3">H3</option>
+                    <option value="blockquote">Quote</option>
+                  </select>
+                  <select class="flat" aria-label="size" @change="format('fontSize', $event.target.value); $event.target.value = '3'">
+                    <option value="3">{{ nav.chrome['service.size'] }}</option>
+                    <option value="2">2</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                  </select>
+                  <button type="button" @mousedown.prevent="format('bold')"><b>B</b></button>
+                  <button type="button" @mousedown.prevent="format('italic')"><i>I</i></button>
+                  <button type="button" @mousedown.prevent="format('underline')"><u>U</u></button>
+                  <button type="button" @mousedown.prevent="format('strikeThrough')"><s>S</s></button>
+                  <input class="rte-color" type="color" aria-label="color" @input="format('foreColor', $event.target.value)" />
+                  <button type="button" @mousedown.prevent="format('insertUnorderedList')">•</button>
+                  <button type="button" @mousedown.prevent="format('insertOrderedList')">1.</button>
+                  <button type="button" @mousedown.prevent="format('outdent')">←</button>
+                  <button type="button" @mousedown.prevent="format('indent')">→</button>
+                  <button type="button" @mousedown.prevent="insertLink()">↗</button>
+                  <button type="button" @mousedown.prevent="insertImage()">▣</button>
+                  <button type="button" @mousedown.prevent="format('insertHTML', '<table><tr><td>&nbsp;</td><td>&nbsp;</td></tr></table>')">▦</button>
+                  <button type="button" @mousedown.prevent="descriptionSource = !descriptionSource">{{ nav.chrome['service.source'] }}</button>
+                </div>
+                <div v-show="!descriptionSource" ref="descriptionEditor" class="rte-area" contenteditable="true" @input="values.description = $event.target.innerHTML"></div>
+                <textarea v-show="descriptionSource" v-model="values.description" class="rte-area" rows="8"></textarea>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.publicUrl'] }}</td>
+            <td class="service-inline">
+              <input id="publicUrl" v-model="values.publicUrl" class="flat" />
+              <button class="butAction" type="button" @click="openPublicUrl">↗</button>
+            </td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.duration'] }}</td>
+            <td class="service-inline">
+              <input id="durationValue" v-model="values.durationValue" class="flat service-short" type="number" min="0" step="1" />
+              <select id="durationUnit" v-model="values.durationUnit" class="flat">
+                <option value="hour">{{ nav.chrome['service.hour'] }}</option>
+                <option value="day">{{ nav.chrome['service.day'] }}</option>
+                <option value="week">{{ nav.chrome['service.week'] }}</option>
+                <option value="month">{{ nav.chrome['service.month'] }}</option>
+              </select>
+              <label><input v-model="values.dateRangeRequired" type="checkbox" /> {{ nav.chrome['service.dateRange'] }}</label>
+            </td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.privateNote'] }}</td>
+            <td><textarea id="privateNote" v-model="values.privateNote" class="flat" rows="4"></textarea></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.tags'] }}</td>
+            <td>
+              <div class="service-inline">
+                <input v-model="tagInput" class="flat" @keydown.enter.prevent="addTag" />
+                <button class="butAction" type="button" @click="addTag">+</button>
+              </div>
+              <div v-if="tagList.length" class="tag-list">
+                <span v-for="tag in tagList" :key="tag" class="tag-chip">{{ tag }}</span>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td colspan="2"><hr class="service-rule" /></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.price'] }}</td>
+            <td class="service-inline">
+              <input id="priceHt" v-model="values.priceHt" class="flat service-short" type="number" min="0" step="0.01" />
+              <select id="priceBasis" v-model="values.priceBasis" class="flat">
+                <option value="ht">HT</option>
+                <option value="ttc">TTC</option>
+              </select>
+            </td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.priceMin'] }}</td>
+            <td><input id="priceMin" v-model="values.priceMin" class="flat service-short" type="number" min="0" step="0.01" /></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.vat'] }}</td>
+            <td>
+              <select id="vatRate" v-model="values.vatRate" class="flat">
+                <option v-for="rate in vatRates" :key="rate" :value="rate">{{ rate }}%</option>
+              </select>
+            </td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.sell'] }}</td>
+            <td><input id="sellAccount" v-model="values.sellAccount" class="flat" maxlength="32" /></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.sellIntra'] }}</td>
+            <td><input id="sellAccountIntra" v-model="values.sellAccountIntra" class="flat" maxlength="32" /></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.sellExport'] }}</td>
+            <td><input id="sellAccountExport" v-model="values.sellAccountExport" class="flat" maxlength="32" /></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.buy'] }}</td>
+            <td><input id="buyAccount" v-model="values.buyAccount" class="flat" maxlength="32" /></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.buyIntra'] }}</td>
+            <td><input id="buyAccountIntra" v-model="values.buyAccountIntra" class="flat" maxlength="32" /></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.buyImport'] }}</td>
+            <td><input id="buyAccountImport" v-model="values.buyAccountImport" class="flat" maxlength="32" /></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="tabsAction">
+        <button class="butAction" type="submit">{{ nav.chrome['action.save'] }}</button>
+        <router-link class="butActionDelete" :to="form.row.id ? `/screens/${form.screen.id}` : `/screens/${form.screen.id}`">{{ nav.chrome['action.cancel'] }}</router-link>
+        <button v-if="form.row.id" class="butActionDelete" type="button" @click="run(remove)">{{ nav.chrome['action.delete'] }}</button>
+      </div>
+    </form>
     <div v-else class="tabBar">
       <form @submit.prevent="run(save)">
         <table class="border tableforfield">
@@ -552,14 +807,19 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
             <tr v-for="field in form.screen.fields" :key="field.name">
               <td class="titlefield">{{ field.label }}</td>
               <td>
-                <textarea v-if="field.type === 'text'" :id="field.name" v-model="values[field.name]" class="flat" :readonly="field.readOnly" rows="3" />
-                <input v-else-if="field.type === 'boolean'" :id="field.name" v-model="values[field.name]" class="flat" type="checkbox" :disabled="field.readOnly" />
-                <select v-else-if="field.type === 'enum' || field.type === 'ref'" :id="field.name" v-model="values[field.name]" class="flat" :disabled="field.readOnly">
-                  <option value=""></option>
+                <textarea v-if="field.type === 'text'" :id="field.name" v-model="values[field.name]" class="flat" :readonly="field.readOnly" :rows="!field.max || field.max > 255 ? 4 : 2" />
+                <span v-else-if="field.type === 'boolean'" class="field-bool">
+                  <label><input type="radio" :name="field.name" :value="true" v-model="values[field.name]" :disabled="field.readOnly" /> {{ nav.chrome['action.yes'] }}</label>
+                  <label><input type="radio" :name="field.name" :value="false" v-model="values[field.name]" :disabled="field.readOnly" /> {{ nav.chrome['action.no'] }}</label>
+                </span>
+                <select v-else-if="field.type === 'enum' || field.type === 'ref'" :id="field.name" v-model="values[field.name]" class="flat" :multiple="field.multiple" :disabled="field.readOnly">
+                  <option v-if="!field.multiple" value=""></option>
                   <option v-for="option in field.options" :key="option.value" :value="String(option.value)">{{ option.label }}</option>
                 </select>
                 <input v-else-if="field.type === 'date'" :id="field.name" v-model="values[field.name]" class="flat" type="date" :readonly="field.readOnly" />
-                <input v-else :id="field.name" v-model="values[field.name]" class="flat" :readonly="field.readOnly" :required="field.required" />
+                <input v-else-if="field.type === 'decimal'" :id="field.name" v-model="values[field.name]" class="flat" type="number" step="0.01" :readonly="field.readOnly" />
+                <input v-else-if="field.type === 'integer'" :id="field.name" v-model="values[field.name]" class="flat" type="number" step="1" :readonly="field.readOnly" />
+                <input v-else :id="field.name" v-model="values[field.name]" class="flat" :type="field.type === 'email' || field.type === 'tel' || field.type === 'url' ? field.type : 'text'" :readonly="field.readOnly" :required="field.required" :maxlength="field.max || undefined" />
               </td>
             </tr>
             <tr v-if="form.screen.id === 'users'">
@@ -615,10 +875,10 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
           <option value=""></option>
           <option v-for="product in form.screen.products" :key="product.value" :value="String(product.value)">{{ product.label }}</option>
         </select>
-        <input v-model="line.description" class="flat" />
-        <input v-model="line.qty" class="flat" />
-        <input v-model="line.unitPrice" class="flat" />
-        <input v-model="line.vatRate" class="flat" />
+        <textarea v-model="line.description" class="flat" rows="2"></textarea>
+        <input v-model="line.qty" class="flat" type="number" step="0.01" />
+        <input v-model="line.unitPrice" class="flat" type="number" step="0.01" />
+        <input v-model="line.vatRate" class="flat" type="number" step="0.01" />
         <button class="butAction" type="submit">{{ nav.chrome['action.addLine'] }}</button>
       </form>
     </div>
@@ -636,6 +896,8 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
           </tr>
         </tbody>
       </table>
+    </div>
+    </div>
     </div>
   </div>
 </template>
