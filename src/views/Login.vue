@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, remember } from '../api'
 
@@ -26,6 +26,15 @@ function chooseLocale(event) {
   locale.value = event.target.value
   localStorage.setItem('atelier.locale', locale.value)
 }
+
+onMounted(() => {
+  if (document.getElementById('active-theme')) return
+  const node = document.createElement('link')
+  node.id = 'active-theme'
+  node.rel = 'stylesheet'
+  node.href = '/api/theme.css'
+  document.head.appendChild(node)
+})
 
 async function submit() {
   error.value = ''

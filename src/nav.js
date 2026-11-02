@@ -1,12 +1,26 @@
 export function href(entry) {
   if (!entry || entry.heading) return null
   const screen = entry.screen || entry.id
-  if (entry.mode === 'home' || entry.systemPage === 'dashboard') return '/'
-  if (entry.systemPage === 'modules') return '/modules'
-  if (entry.systemPage === 'translate') return '/translate'
-  if (entry.mode === 'create') return `/screens/${screen}/new`
-  if (entry.systemPage || entry.mode === 'system') return `/system/${screen}`
-  return `/screens/${screen}`
+  let url
+  if (entry.mode === 'home' || entry.systemPage === 'dashboard') url = '/'
+  else if (entry.systemPage === 'modules') url = '/modules'
+  else if (entry.systemPage === 'translate') url = '/translate'
+  else if (entry.mode === 'create') url = `/screens/${screen}/new`
+  else if (entry.systemPage || entry.mode === 'system') url = `/system/${screen}`
+  else url = `/screens/${screen}`
+  if (entry.query) url += `?${entry.query}`
+  return url
+}
+
+function sameQuery(expected, actual) {
+  const left = new URLSearchParams(expected || '')
+  const right = new URLSearchParams(actual || '')
+  const keys = new Set([...left.keys(), ...right.keys()])
+  for (const key of keys) {
+    if (key === 'lang' || key === 'id' || key === 'row') continue
+    if ((left.get(key) || '') !== (right.get(key) || '')) return false
+  }
+  return true
 }
 
 export function groupOpen(group, path) {
@@ -53,9 +67,13 @@ export function visibleEntries(group, path) {
 export function matches(entry, path) {
   const target = href(entry)
   if (!target) return false
-  if (entry.mode === 'create') return path === target
-  if (target === '/') return path === '/'
-  if (path === target) return true
-  if ((entry.mode === 'list' || entry.target === 'list') && path.startsWith(`${target}/`) && !path.endsWith('/new')) return true
+  const currentPath = String(path || '').split('?')[0]
+  const currentQuery = String(path || '').includes('?') ? String(path).split('?')[1] : ''
+  const targetPath = target.split('?')[0]
+  if (entry.mode === 'create') return currentPath === targetPath
+  if (targetPath === '/') return currentPath === '/'
+  if (entry.query) return currentPath === targetPath && sameQuery(entry.query, currentQuery)
+  if (currentPath === targetPath) return true
+  if ((entry.mode === 'list' || entry.target === 'list') && currentPath.startsWith(`${targetPath}/`) && !currentPath.endsWith('/new')) return true
   return false
 }

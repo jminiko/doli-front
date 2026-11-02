@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { api } from '../api'
 import { href } from '../nav'
 import FileLibrary from './FileLibrary.vue'
+import ImmoDesk from './ImmoDesk.vue'
 
 const route = useRoute()
 const locale = inject('locale')
@@ -18,7 +19,12 @@ const notice = ref('')
 async function load() {
   error.value = ''
   notice.value = ''
-  page.value = await api(`/api/system/${route.params.id}`, { locale: locale.value })
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(route.query)) {
+    if (value != null && value !== '') query.set(key, Array.isArray(value) ? value[0] : value)
+  }
+  const suffix = query.toString() ? `?${query}` : ''
+  page.value = await api(`/api/system/${route.params.id}${suffix}`, { locale: locale.value })
   Object.keys(values).forEach((key) => delete values[key])
   for (const field of page.value.fields || []) {
     values[field.name] = field.type === 'bool' ? field.value === '1' || field.value === 'true' : (field.value ?? '')
@@ -50,7 +56,7 @@ async function save() {
 }
 
 onMounted(() => load().catch((cause) => { error.value = cause.message }))
-watch(() => route.params.id, () => load().catch((cause) => { error.value = cause.message }))
+watch(() => route.fullPath, () => load().catch((cause) => { error.value = cause.message }))
 </script>
 
 <template>
@@ -180,6 +186,7 @@ watch(() => route.params.id, () => load().catch((cause) => { error.value = cause
     </form>
 
     <FileLibrary v-else-if="page.kind === 'library'" :page="page" @update="page = $event" />
+    <ImmoDesk v-else-if="page.kind === 'ledger'" :page="page" @update="page = $event" />
     <form v-else-if="page.kind === 'vat'" @submit.prevent="save().catch((cause) => { error.value = cause.message })">
       <table class="border">
         <tbody>

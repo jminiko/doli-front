@@ -33,12 +33,12 @@ function menuTo(menu) {
 }
 
 function entryMatches(entry) {
-  return matches(entry, route.path)
+  return matches(entry, route.fullPath)
 }
 
 function isActiveMenu(menu) {
-  if (matches(menu.link, route.path)) return true
-  return (menu.groups || []).some((group) => matches(group.link, route.path) || group.entries.some(entryMatches))
+  if (matches(menu.link, route.fullPath)) return true
+  return (menu.groups || []).some((group) => matches(group.link, route.fullPath) || group.entries.some(entryMatches))
 }
 
 const activeMenu = computed(() => (nav.value.menus || []).find(isActiveMenu))
@@ -76,6 +76,19 @@ watch(() => route.fullPath, () => {
   sideQuery.value = typeof route.query.q === 'string' ? route.query.q : ''
   menuOpen.value = false
 })
+
+watch(() => nav.value?.theme, (href) => {
+  const link = document.getElementById('active-theme')
+  if (!href) {
+    link?.remove()
+    return
+  }
+  const node = link || document.createElement('link')
+  node.id = 'active-theme'
+  node.rel = 'stylesheet'
+  if (!link) document.head.appendChild(node)
+  if (!node.getAttribute('href')?.endsWith(href)) node.href = href
+}, { immediate: true })
 provide('locale', locale)
 provide('nav', nav)
 provide('error', error)
@@ -115,7 +128,7 @@ provide('iconFor', iconFor)
         </select>
         <span v-if="account" class="login-name">{{ account.login }}</span>
         <button v-if="account" class="login-out" type="button" @click="logout">{{ nav.chrome['auth.signOut'] }}</button>
-        <a href="http://localhost:8080">{{ nav.chrome['gsp.link'] }}</a>
+        <a v-if="nav.gsp" href="http://localhost:8080">{{ nav.chrome['gsp.link'] }}</a>
       </div>
     </header>
     <div class="below">
@@ -126,9 +139,9 @@ provide('iconFor', iconFor)
               <input v-model="sideQuery" class="vmenusearch" type="search" :placeholder="nav.chrome['action.search'] || 'Search'" />
             </form>
             <div v-if="activeMenu?.groups?.length" class="vmenu-blocks">
-              <div v-for="(group, index) in activeMenu.groups" :key="group.id" class="blockvmenu" :class="[index % 2 ? 'blockvmenupair' : 'blockvmenuimpair', { open: groupOpen(group, route.path) }]">
+              <div v-for="(group, index) in activeMenu.groups" :key="group.id" class="blockvmenu" :class="[index % 2 ? 'blockvmenupair' : 'blockvmenuimpair', { open: groupOpen(group, route.fullPath) }]">
                 <div class="menu_titre">
-                  <router-link v-if="href(group.link)" class="vmenu" :class="{ vmenusel: matches(group.link, route.path) }" :to="href(group.link)">
+                  <router-link v-if="href(group.link)" class="vmenu" :class="{ vmenusel: matches(group.link, route.fullPath) }" :to="href(group.link)">
                     <i :class="['bi', group.icon || 'bi-folder']"></i><span>{{ group.label }}</span>
                     <i v-if="menuFolds(group)" class="bi bi-chevron-right vmenu-caret"></i>
                   </router-link>
@@ -137,9 +150,9 @@ provide('iconFor', iconFor)
                   </span>
                 </div>
                 <div class="menu_top"></div>
-                <div v-for="entry in visibleEntries(group, route.path)" :key="entry.id" class="menu_contenu" :class="'level-' + entry.level">
+                <div v-for="entry in visibleEntries(group, route.fullPath)" :key="entry.id" class="menu_contenu" :class="'level-' + entry.level">
                   <span v-if="entry.heading" class="vsmenu-label">{{ entry.label }}</span>
-                  <router-link v-else class="vsmenu" :class="{ vsmenusel: matches(entry, route.path) }" :to="href(entry)">
+                  <router-link v-else class="vsmenu" :class="{ vsmenusel: matches(entry, route.fullPath) }" :to="href(entry)">
                     {{ entry.label }}
                     <i v-if="entry.warning" class="bi bi-exclamation-triangle-fill menu-warn"></i>
                   </router-link>
