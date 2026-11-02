@@ -1,0 +1,18 @@
+node_modules
+dist
+.DS_Store
+*.log
+.env
+.env.local
+
+# Workflow
+.github/
+deploy/systemd/
+logs/
+
+# Dossiers de référence locaux (ne pas versionner)
+vue-components/
+
+
+# Config d'outils de développement locale (ne pas versionner)
+.claude/
