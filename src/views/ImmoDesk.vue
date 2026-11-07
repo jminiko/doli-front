@@ -1,7 +1,8 @@
 <script setup>
-import { inject } from 'vue'
+import { inject, reactive, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api'
+import SearchableSelect from '../components/SearchableSelect.vue'
 
 const props = defineProps({ page: { type: Object, required: true } })
 const emit = defineEmits(['update'])
@@ -9,6 +10,25 @@ const route = useRoute()
 const router = useRouter()
 const locale = inject('locale')
 const error = inject('error')
+const formValues = reactive({})
+
+function syncFormValues() {
+  Object.keys(formValues).forEach((key) => delete formValues[key])
+  for (const block of props.page.blocks || []) {
+    if (block.form) {
+      for (const field of block.form.fields || []) {
+        formValues[field.name] = field.value == null ? '' : String(field.value)
+      }
+    }
+  }
+  for (const field of props.page.action?.fields || []) {
+    formValues[field.name] = field.value == null ? '' : String(field.value)
+  }
+}
+
+watch(() => props.page, syncFormValues, { immediate: true, deep: true })
+
+const yearOptions = computed(() => (props.page.years || []).map((year) => ({ value: String(year), label: String(year) })))
 
 function go(query) {
   router.push({ path: route.path, query })
@@ -38,8 +58,10 @@ function submit(event, row) {
     <h2 class="opacitymedium">{{ page.heading }}</h2>
     <p v-for="line in page.notes || []" :key="line" class="opacitymedium">{{ line }}</p>
 
-    <form v-if="page.years" class="immo-year" @change="go({ section: 'result', year: $event.target.value })">
-      <label>{{ page.yearLabel }} <select :value="page.year"><option v-for="year in page.years" :key="year" :value="year">{{ year }}</option></select></label>
+    <form v-if="page.years" class="immo-year">
+      <label>{{ page.yearLabel }}
+        <SearchableSelect :model-value="String(page.year || '')" :options="yearOptions" @update:model-value="go({ section: 'result', year: $event })" :placeholder="''" />
+      </label>
     </form>
 
     <section v-for="block in page.blocks || []" :key="block.title">
@@ -73,10 +95,10 @@ function submit(event, row) {
               <td class="titlefield">{{ field.label }}</td>
               <td>
                 <textarea v-if="field.type === 'text'" :name="field.name" class="flat" rows="3" :disabled="block.form.locked">{{ field.value }}</textarea>
-                <select v-else-if="field.options" :name="field.name" class="flat" :disabled="block.form.locked">
-                  <option v-if="!field.required" value=""></option>
-                  <option v-for="option in field.options" :key="option.value" :value="option.value" :selected="option.value === field.value">{{ option.label }}</option>
-                </select>
+                <template v-else-if="field.options">
+                  <input type="hidden" :name="field.name" :value="formValues[field.name] || ''" />
+                  <SearchableSelect v-model="formValues[field.name]" :options="field.options" :disabled="block.form.locked" :placeholder="''" />
+                </template>
                 <input v-else :name="field.name" class="flat" :type="field.input || 'text'" :step="field.step" :value="field.value" :required="field.required" :disabled="block.form.locked" />
               </td>
             </tr>
@@ -96,9 +118,10 @@ function submit(event, row) {
           <tr v-for="field in page.action.fields" :key="field.name">
             <td class="titlefield">{{ field.label }}</td>
             <td>
-              <select v-if="field.options" :name="field.name" class="flat" required>
-                <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option>
-              </select>
+              <template v-if="field.options">
+                <input type="hidden" :name="field.name" :value="formValues[field.name] || ''" />
+                <SearchableSelect v-model="formValues[field.name]" :options="field.options" :placeholder="''" />
+              </template>
               <input v-else :name="field.name" class="flat" :value="field.value" />
             </td>
           </tr>

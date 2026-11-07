@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, remember } from '../api'
+import SearchableSelect from '../components/SearchableSelect.vue'
 
 const router = useRouter()
 const locale = ref(localStorage.getItem('atelier.locale') || 'fr')
@@ -14,6 +15,7 @@ const languages = [
   { code: 'de', name: 'Deutsch' },
   { code: 'es', name: 'Español' }
 ]
+const languageOptions = languages.map((language) => ({ value: language.code, label: language.name }))
 const copy = {
   fr: { title: 'Connexion', login: 'Identifiant', password: 'Mot de passe', submit: 'Se connecter' },
   en: { title: 'Sign in', login: 'Login', password: 'Password', submit: 'Sign in' },
@@ -22,8 +24,8 @@ const copy = {
 }
 const text = computed(() => copy[locale.value] || copy.fr)
 
-function chooseLocale(event) {
-  locale.value = event.target.value
+function chooseLocale(value) {
+  locale.value = value
   localStorage.setItem('atelier.locale', locale.value)
 }
 
@@ -62,8 +64,6 @@ async function submit() {
     <label for="password">{{ text.password }}</label>
     <input id="password" v-model="password" class="flat" type="password" autocomplete="current-password" required />
     <button class="butAction" type="submit">{{ text.submit }}</button>
-    <select class="login-lang" aria-label="language" :value="locale" @change="chooseLocale">
-      <option v-for="language in languages" :key="language.code" :value="language.code">{{ language.name }}</option>
-    </select>
+    <SearchableSelect class="login-lang" :model-value="locale" :options="languageOptions" @update:model-value="chooseLocale" :placeholder="''" />
   </form>
 </template>

@@ -2,6 +2,7 @@
 import { computed, inject, nextTick, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api'
+import SearchableSelect from '../components/SearchableSelect.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -226,6 +227,33 @@ const vatRates = computed(() => {
   const current = String(values.vatRate ?? '')
   return current && !rates.includes(current) ? [current, ...rates] : rates
 })
+const vatRateOptions = computed(() => vatRates.value.map((rate) => ({ value: rate, label: `${rate}%` })))
+const sharedOptions = computed(() => [
+  { value: 'false', label: nav.value?.chrome?.['visibility.private'] || 'Private' },
+  { value: 'true', label: nav.value?.chrome?.['visibility.shared'] || 'Shared' }
+])
+const sharedProxy = computed({
+  get: () => (values.shared ? 'true' : 'false'),
+  set: (value) => { values.shared = value === 'true' }
+})
+const saleStatusOptions = computed(() => [
+  { value: 'onsale', label: nav.value?.chrome?.['service.onsale'] || 'On sale' },
+  { value: 'offsale', label: nav.value?.chrome?.['service.offsale'] || 'Off sale' }
+])
+const buyStatusOptions = computed(() => [
+  { value: 'onbuy', label: nav.value?.chrome?.['service.onbuy'] || 'On buy' },
+  { value: 'offbuy', label: nav.value?.chrome?.['service.offbuy'] || 'Off buy' }
+])
+const durationUnitOptions = computed(() => [
+  { value: 'hour', label: nav.value?.chrome?.['service.hour'] || 'Hour' },
+  { value: 'day', label: nav.value?.chrome?.['service.day'] || 'Day' },
+  { value: 'week', label: nav.value?.chrome?.['service.week'] || 'Week' },
+  { value: 'month', label: nav.value?.chrome?.['service.month'] || 'Month' }
+])
+const priceBasisOptions = computed(() => [
+  { value: 'ht', label: 'HT' },
+  { value: 'ttc', label: 'TTC' }
+])
 const tagList = computed(() => String(values.tags || '').split(',').map((item) => item.trim()).filter(Boolean))
 
 function format(command, argument) {
@@ -452,10 +480,7 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
                     <label><input type="radio" :name="'tab-' + field.name" :value="true" v-model="draft[field.name]" /> {{ nav.chrome['action.yes'] }}</label>
                     <label><input type="radio" :name="'tab-' + field.name" :value="false" v-model="draft[field.name]" /> {{ nav.chrome['action.no'] }}</label>
                   </span>
-                  <select v-else-if="field.type === 'ref' || field.type === 'enum'" v-model="draft[field.name]" class="flat" :multiple="field.multiple" :required="field.required && !field.multiple">
-                    <option v-if="!field.multiple" value=""></option>
-                    <option v-for="option in field.options || []" :key="option.value" :value="String(option.value)">{{ option.label }}</option>
-                  </select>
+                  <SearchableSelect v-else-if="field.type === 'ref' || field.type === 'enum'" v-model="draft[field.name]" :options="field.options || []" :multiple="field.multiple" :required="field.required && !field.multiple" :searchThreshold="field.type === 'ref' ? 1 : 12" :id="'tab-' + field.name" :placeholder="''" />
                   <input v-else-if="field.type === 'date'" v-model="draft[field.name]" class="flat" type="date" :required="field.required" />
                   <input v-else-if="field.type === 'decimal'" v-model="draft[field.name]" class="flat" type="number" step="0.01" :required="field.required" />
                   <input v-else-if="field.type === 'integer'" v-model="draft[field.name]" class="flat" type="number" step="1" :required="field.required" />
@@ -588,19 +613,13 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
           <tr>
             <td class="titlefield">{{ meta('thirdParty').label }}</td>
             <td>
-              <select id="thirdParty" v-model="values.thirdParty" class="flat">
-                <option value=""></option>
-                <option v-for="option in meta('thirdParty').options" :key="option.value" :value="String(option.value)">{{ option.label }}</option>
-              </select>
+              <SearchableSelect id="thirdParty" v-model="values.thirdParty" :options="meta('thirdParty').options || []" :searchThreshold="1" :placeholder="''" />
             </td>
           </tr>
           <tr v-show="values.usageOpportunity">
             <td class="titlefield">{{ nav.chrome['field.oppStatus'] }}</td>
             <td class="pair">
-              <select id="oppStatus" v-model="values.oppStatus" class="flat" :required="values.usageOpportunity">
-                <option value=""></option>
-                <option v-for="option in meta('oppStatus').options" :key="option.value" :value="String(option.value)">{{ option.label }}</option>
-              </select>
+              <SearchableSelect id="oppStatus" v-model="values.oppStatus" :options="meta('oppStatus').options || []" :required="values.usageOpportunity" :placeholder="''" />
               <input id="oppPercent" v-model="values.oppPercent" class="flat" type="number" step="0.01" />
               <span>%</span>
             </td>
@@ -628,10 +647,7 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
           <tr>
             <td class="titlefield">{{ nav.chrome['field.visibility'] }}</td>
             <td>
-              <select id="shared" class="flat" :value="values.shared ? 'true' : 'false'" @change="values.shared = $event.target.value === 'true'">
-                <option value="false">{{ nav.chrome['visibility.private'] }}</option>
-                <option value="true">{{ nav.chrome['visibility.shared'] }}</option>
-              </select>
+              <SearchableSelect id="shared" v-model="sharedProxy" :options="sharedOptions" :placeholder="''" />
             </td>
           </tr>
         </tbody>
@@ -656,19 +672,13 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
           <tr>
             <td class="titlefield">{{ nav.chrome['service.sale'] }}</td>
             <td>
-              <select id="saleStatus" v-model="values.saleStatus" class="flat">
-                <option value="onsale">{{ nav.chrome['service.onsale'] }}</option>
-                <option value="offsale">{{ nav.chrome['service.offsale'] }}</option>
-              </select>
+              <SearchableSelect id="saleStatus" v-model="values.saleStatus" :options="saleStatusOptions" :placeholder="''" />
             </td>
           </tr>
           <tr>
             <td class="titlefield">{{ nav.chrome['service.buyState'] }}</td>
             <td>
-              <select id="buyStatus" v-model="values.buyStatus" class="flat">
-                <option value="onbuy">{{ nav.chrome['service.onbuy'] }}</option>
-                <option value="offbuy">{{ nav.chrome['service.offbuy'] }}</option>
-              </select>
+              <SearchableSelect id="buyStatus" v-model="values.buyStatus" :options="buyStatusOptions" :placeholder="''" />
             </td>
           </tr>
           <tr>
@@ -718,12 +728,7 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
             <td class="titlefield">{{ nav.chrome['service.duration'] }}</td>
             <td class="service-inline">
               <input id="durationValue" v-model="values.durationValue" class="flat service-short" type="number" min="0" step="1" />
-              <select id="durationUnit" v-model="values.durationUnit" class="flat">
-                <option value="hour">{{ nav.chrome['service.hour'] }}</option>
-                <option value="day">{{ nav.chrome['service.day'] }}</option>
-                <option value="week">{{ nav.chrome['service.week'] }}</option>
-                <option value="month">{{ nav.chrome['service.month'] }}</option>
-              </select>
+              <SearchableSelect id="durationUnit" v-model="values.durationUnit" :options="durationUnitOptions" :placeholder="''" />
               <label><input v-model="values.dateRangeRequired" type="checkbox" /> {{ nav.chrome['service.dateRange'] }}</label>
             </td>
           </tr>
@@ -750,10 +755,7 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
             <td class="titlefield">{{ nav.chrome['service.price'] }}</td>
             <td class="service-inline">
               <input id="priceHt" v-model="values.priceHt" class="flat service-short" type="number" min="0" step="0.01" />
-              <select id="priceBasis" v-model="values.priceBasis" class="flat">
-                <option value="ht">HT</option>
-                <option value="ttc">TTC</option>
-              </select>
+              <SearchableSelect id="priceBasis" v-model="values.priceBasis" :options="priceBasisOptions" :placeholder="''" />
             </td>
           </tr>
           <tr>
@@ -763,9 +765,7 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
           <tr>
             <td class="titlefield">{{ nav.chrome['service.vat'] }}</td>
             <td>
-              <select id="vatRate" v-model="values.vatRate" class="flat">
-                <option v-for="rate in vatRates" :key="rate" :value="rate">{{ rate }}%</option>
-              </select>
+              <SearchableSelect id="vatRate" v-model="values.vatRate" :options="vatRateOptions" :placeholder="''" />
             </td>
           </tr>
           <tr>
@@ -812,10 +812,7 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
                   <label><input type="radio" :name="field.name" :value="true" v-model="values[field.name]" :disabled="field.readOnly" /> {{ nav.chrome['action.yes'] }}</label>
                   <label><input type="radio" :name="field.name" :value="false" v-model="values[field.name]" :disabled="field.readOnly" /> {{ nav.chrome['action.no'] }}</label>
                 </span>
-                <select v-else-if="field.type === 'enum' || field.type === 'ref'" :id="field.name" v-model="values[field.name]" class="flat" :multiple="field.multiple" :disabled="field.readOnly">
-                  <option v-if="!field.multiple" value=""></option>
-                  <option v-for="option in field.options" :key="option.value" :value="String(option.value)">{{ option.label }}</option>
-                </select>
+                <SearchableSelect v-else-if="field.type === 'enum' || field.type === 'ref'" :id="field.name" v-model="values[field.name]" :options="field.options || []" :multiple="field.multiple" :disabled="field.readOnly" :searchThreshold="field.type === 'ref' ? 1 : 12" :placeholder="''" />
                 <input v-else-if="field.type === 'date'" :id="field.name" v-model="values[field.name]" class="flat" type="date" :readonly="field.readOnly" />
                 <input v-else-if="field.type === 'decimal'" :id="field.name" v-model="values[field.name]" class="flat" type="number" step="0.01" :readonly="field.readOnly" />
                 <input v-else-if="field.type === 'integer'" :id="field.name" v-model="values[field.name]" class="flat" type="number" step="1" :readonly="field.readOnly" />
@@ -871,10 +868,7 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
         </tbody>
       </table>
       <form class="inline-form" @submit.prevent="run(addLine)">
-        <select v-model="line.product" class="flat">
-          <option value=""></option>
-          <option v-for="product in form.screen.products" :key="product.value" :value="String(product.value)">{{ product.label }}</option>
-        </select>
+        <SearchableSelect v-model="line.product" :options="form.screen.products || []" :searchThreshold="1" :placeholder="''" />
         <textarea v-model="line.description" class="flat" rows="2"></textarea>
         <input v-model="line.qty" class="flat" type="number" step="0.01" />
         <input v-model="line.unitPrice" class="flat" type="number" step="0.01" />

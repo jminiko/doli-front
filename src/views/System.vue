@@ -5,6 +5,8 @@ import { api } from '../api'
 import { href } from '../nav'
 import FileLibrary from './FileLibrary.vue'
 import ImmoDesk from './ImmoDesk.vue'
+import WebsiteStudio from './WebsiteStudio.vue'
+import SearchableSelect from '../components/SearchableSelect.vue'
 
 const route = useRoute()
 const locale = inject('locale')
@@ -87,10 +89,7 @@ watch(() => route.fullPath, () => load().catch((cause) => { error.value = cause.
             <td>
               <textarea v-if="field.type === 'area'" :id="'field-' + field.name" v-model="values[field.name]" class="flat" rows="3"></textarea>
               <input v-else-if="field.type === 'bool'" :id="'field-' + field.name" v-model="values[field.name]" class="flat" type="checkbox" />
-              <select v-else-if="field.type === 'choice'" :id="'field-' + field.name" v-model="values[field.name]" class="flat">
-                <option value=""></option>
-                <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option>
-              </select>
+              <SearchableSelect v-else-if="field.type === 'choice'" :id="'field-' + field.name" v-model="values[field.name]" :options="field.options || []" :placeholder="''" />
               <input v-else-if="field.type === 'number'" :id="'field-' + field.name" v-model="values[field.name]" class="flat" type="number" step="any" />
               <input v-else :id="'field-' + field.name" v-model="values[field.name]" class="flat" type="text" />
             </td>
@@ -186,6 +185,7 @@ watch(() => route.fullPath, () => load().catch((cause) => { error.value = cause.
     </form>
 
     <FileLibrary v-else-if="page.kind === 'library'" :page="page" @update="page = $event" />
+    <WebsiteStudio v-else-if="page.kind === 'studio'" :page="page" @update="page = $event" />
     <ImmoDesk v-else-if="page.kind === 'ledger'" :page="page" @update="page = $event" />
     <form v-else-if="page.kind === 'vat'" @submit.prevent="save().catch((cause) => { error.value = cause.message })">
       <table class="border">

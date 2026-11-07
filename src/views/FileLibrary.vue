@@ -1,6 +1,7 @@
 <script setup>
-import { computed, inject, ref } from 'vue'
+import { computed, inject, reactive, ref, watch } from 'vue'
 import { api } from '../api'
+import SearchableSelect from '../components/SearchableSelect.vue'
 
 const props = defineProps({ page: { type: Object, required: true } })
 const emit = defineEmits(['update'])
@@ -11,9 +12,56 @@ const dialog = ref(null)
 const dialogNode = ref(null)
 const tool = ref('text')
 const pdfPage = ref(1)
+const createdShareLink = ref('')
+const createdDownloadLink = ref('')
+const copied = ref('')
+function copyText(text, key) {
+  if (!text) return
+  const absolute = text.startsWith('http') ? text : `${window.location.origin}${text}`
+  navigator.clipboard?.writeText(absolute).then(() => { copied.value = key })
+}
+const formValues = reactive({})
+const gridOverride = ref(false)
+const effectiveView = computed(() => (gridOverride.value ? 'grid' : 'list'))
 
 const labels = computed(() => props.page.labels || {})
 const settings = computed(() => props.page.settings || {})
+
+const modeOptions = computed(() => [
+  { value: 'permissive', label: labels.value.permissive || 'Permissive' },
+  { value: 'restrictive', label: labels.value.restrictive || 'Restrictive' }
+])
+const defaultViewOptions = computed(() => [
+  { value: 'grid', label: labels.value.grid || 'Grid' },
+  { value: 'list', label: labels.value.list || 'List' }
+])
+const eidasLevelOptions = computed(() => [
+  { value: 'simple', label: labels.value.levelSimple || 'Simple' },
+  { value: 'advanced', label: labels.value.levelAdvanced || 'Advanced' },
+  { value: 'qualified', label: labels.value.levelQualified || 'Qualified' }
+])
+const providerOptions = computed(() => [
+  { value: 'internal', label: labels.value.sign || 'Sign' },
+  { value: 'docuseal', label: 'DocuSeal' },
+  { value: 'yousign', label: 'Yousign' }
+])
+const docTypeOptions = computed(() => (props.page.docTypes || []).map((item) => ({ value: item, label: item })))
+const toolOptions = computed(() => [
+  { value: 'text', label: labels.value.text || 'Text' },
+  { value: 'stamp', label: labels.value.stamp || 'Stamp' },
+  { value: 'split', label: labels.value.split || 'Split' }
+])
+
+function syncFormValues() {
+  formValues.mode = settings.value.mode || 'permissive'
+  formValues.defaultView = settings.value.defaultView || 'grid'
+  formValues.eidasLevel = settings.value.eidasLevel || 'simple'
+  formValues.docType = ''
+  formValues.provider = 'internal'
+  formValues.tool = 'text'
+}
+
+watch(() => props.page, syncFormValues, { immediate: true, deep: true })
 
 async function call(verb, extra = {}) {
   menu.value = null
@@ -72,12 +120,125 @@ function show(name, node) {
   dialog.value = name
   dialogNode.value = node
   menu.value = null
+  createdShareLink.value = ''
+  createdDownloadLink.value = ''
+  copied.value = ''
 }
+
+const selected = ref(new Set())
+const allSelected = computed(() => {
+  const nodes = props.page.nodes || []
+  return nodes.length > 0 && nodes.every((node) => selected.value.has(node.id))
+})
+const someSelected = computed(() => selected.value.size > 0)
+
+function toggleNode(node, checked) {
+  const next = new Set(selected.value)
+  if (checked) next.add(node.id)
+  else next.delete(node.id)
+  selected.value = next
+}
+
+function toggleAll(checked) {
+  const nodes = props.page.nodes || []
+  const next = new Set(selected.value)
+  if (checked) nodes.forEach((node) => next.add(node.id))
+  else nodes.forEach((node) => next.delete(node.id))
+  selected.value = next
+}
+
+function clearSelection() {
+  selected.value = new Set()
+}
+
+const selectedShares = ref(new Set())
+const allSharesSelected = computed(() => {
+  const shares = props.page.shares || []
+  return shares.length > 0 && shares.every((item) => selectedShares.value.has(item.id))
+})
+const someSharesSelected = computed(() => selectedShares.value.size > 0)
+
+function toggleShare(item, checked) {
+  const next = new Set(selectedShares.value)
+  if (checked) next.add(item.id)
+  else next.delete(item.id)
+  selectedShares.value = next
+}
+
+function toggleAllShares(checked) {
+  const shares = props.page.shares || []
+  const next = new Set(selectedShares.value)
+  if (checked) shares.forEach((item) => next.add(item.id))
+  else shares.forEach((item) => next.delete(item.id))
+  selectedShares.value = next
+}
+
+function clearShareSelection() {
+  selectedShares.value = new Set()
+}
+
+async function bulkUnshare() {
+  const ids = [...selectedShares.value]
+  if (!ids.length) return
+  if (!window.confirm(labels.value.confirmBulkUnshare?.replace('{count}', String(ids.length)) || `Supprimer ${ids.length} partage(s) ?`)) return
+  error.value = ''
+  try {
+    await Promise.all(ids.map((id) =>
+      api(`/api/plugins/filemanager/unshare`, { locale: locale.value, method: 'POST', body: { id, section: 'shares', source: props.page.source, folder: props.page.folder || '' } })
+    ))
+    selectedShares.value = new Set()
+    await go({})
+  } catch (cause) {
+    error.value = cause.message
+  }
+}
+
+async function bulkTrash() {
+  const ids = [...selected.value]
+  if (!ids.length) return
+  if (!window.confirm(labels.value.confirmBulkDelete?.replace('{count}', String(ids.length)) || `Supprimer ${ids.length} élément(s) ?`)) return
+  error.value = ''
+  try {
+    await Promise.all(ids.map((id) =>
+      api(`/api/plugins/filemanager/trash`, { locale: locale.value, method: 'POST', body: { id, section: 'explorer', source: props.page.source, folder: props.page.folder || '' } })
+    ))
+    selected.value = new Set()
+    await go({})
+  } catch (cause) {
+    error.value = cause.message
+  }
+}
+
+function formatSize(bytes) {
+  const value = Number(bytes || 0)
+  if (!value) return ''
+  if (value < 1024) return `${value} o`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} Ko`
+  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} Mo`
+  return `${(value / (1024 * 1024 * 1024)).toFixed(1)} Go`
+}
+
+function formatDate(value) {
+  if (!value) return ''
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return date.toLocaleDateString(locale.value || 'fr', { year: 'numeric', month: '2-digit', day: '2-digit' })
+}
+
+watch(() => [props.page.source, props.page.folder, props.page.section], () => { selected.value = new Set(); selectedShares.value = new Set() })
 
 function submitDialog(event, verb, extra = {}) {
   const data = Object.fromEntries(new FormData(event.target).entries())
   call(verb, { id: dialogNode.value?.id, ...data, ...extra })
-    .then(() => { dialog.value = null })
+    .then((result) => {
+      if (verb === 'share' && (result?.link || result?.downloadLink)) {
+        createdShareLink.value = result.link || ''
+        createdDownloadLink.value = result.downloadLink || ''
+        copied.value = ''
+      } else {
+        dialog.value = null
+      }
+    })
     .catch((cause) => { error.value = cause.message })
 }
 
@@ -164,7 +325,7 @@ const configTabs = ['general', 'display', 'cloud', 'tray', 'templates', 'validit
           <button v-for="item in configTabs" :key="item" type="button" :class="{ selected: page.tab === item }" @click="go({ section: 'config', tab: item })">{{ labels[item] }}</button>
         </div>
         <form v-if="page.tab === 'general'" class="fm-form" @submit.prevent="call('settings', { section: 'config', tab: 'general', mode: $event.target.mode.value, defaultSource: $event.target.defaultSource.value, order: $event.target.order.value, autoFolder: $event.target.autoFolder.checked, trashDays: $event.target.trashDays.value }).catch((cause) => { error.value = cause.message })">
-          <label>{{ labels.mode }}<select name="mode" class="flat"><option value="permissive" :selected="settings.mode === 'permissive'">{{ labels.permissive }}</option><option value="restrictive" :selected="settings.mode === 'restrictive'">{{ labels.restrictive }}</option></select></label>
+          <label>{{ labels.mode }}<input type="hidden" name="mode" :value="formValues.mode" /><SearchableSelect v-model="formValues.mode" :options="modeOptions" :placeholder="''" /></label>
           <label>{{ labels.defaultSource }}<input name="defaultSource" class="flat" :value="settings.defaultSource" /></label>
           <label>{{ labels.order }}<input name="order" class="flat" :value="settings.order" /></label>
           <label>{{ labels.trashDays }}<input name="trashDays" class="flat" type="number" :value="settings.trashDays" /></label>
@@ -173,7 +334,7 @@ const configTabs = ['general', 'display', 'cloud', 'tray', 'templates', 'validit
           <button class="butAction" type="submit">{{ labels.save }}</button>
         </form>
         <form v-else-if="page.tab === 'display'" class="fm-form" @submit.prevent="call('settings', { section: 'config', tab: 'display', defaultView: $event.target.defaultView.value }).catch((cause) => { error.value = cause.message })">
-          <label>{{ labels.display }}<select name="defaultView" class="flat"><option value="grid">{{ labels.grid }}</option><option value="list">{{ labels.list }}</option></select></label>
+          <label>{{ labels.display }}<input type="hidden" name="defaultView" :value="formValues.defaultView" /><SearchableSelect v-model="formValues.defaultView" :options="defaultViewOptions" :placeholder="''" /></label>
           <button class="butAction" type="submit">{{ labels.save }}</button>
         </form>
         <div v-else-if="page.tab === 'cloud'">
@@ -236,11 +397,8 @@ const configTabs = ['general', 'display', 'cloud', 'tray', 'templates', 'validit
             </table>
             <h2>{{ labels.eidas }}</h2>
             <label>{{ labels.eidasLevel }}
-              <select name="eidasLevel" class="flat">
-                <option value="simple">{{ labels.levelSimple }}</option>
-                <option value="advanced" :selected="settings.eidasLevel === 'advanced'">{{ labels.levelAdvanced }}</option>
-                <option value="qualified">{{ labels.levelQualified }}</option>
-              </select>
+              <input type="hidden" name="eidasLevel" :value="formValues.eidasLevel" />
+              <SearchableSelect v-model="formValues.eidasLevel" :options="eidasLevelOptions" :placeholder="''" />
             </label>
             <label><input name="eidasBadge" type="checkbox" :checked="settings.eidasBadge" /> {{ labels.eidasBadge }}</label>
             <p class="opacitymedium">{{ labels.qualifiedNote }}</p>
@@ -292,7 +450,8 @@ const configTabs = ['general', 'display', 'cloud', 'tray', 'templates', 'validit
         <h2>{{ labels.validity }}</h2>
         <p class="opacitymedium">{{ labels.manualReminder }}</p>
         <form v-if="page.preview" class="fm-form" @submit.prevent="call('meta', { id: page.preview.id, section: 'validity', expires: $event.target.expires.value, docType: $event.target.docType.value }).catch((cause) => { error.value = cause.message })">
-          <select name="docType" class="flat"><option v-for="item in page.docTypes" :key="item" :value="item">{{ item }}</option></select>
+          <input type="hidden" name="docType" :value="formValues.docType" />
+          <SearchableSelect v-model="formValues.docType" :options="docTypeOptions" :placeholder="''" />
           <input name="expires" class="flat" type="date" :value="page.preview.expires || ''" />
           <button class="butAction" type="submit">{{ labels.addValidity }}</button>
         </form>
@@ -322,8 +481,43 @@ const configTabs = ['general', 'display', 'cloud', 'tray', 'templates', 'validit
       </section>
 
       <section v-else-if="page.section === 'shares'">
-        <h2>{{ labels.myShares }}</h2>
-        <p v-for="item in page.shares" :key="item.id">{{ item.shareTitle || item.name }} — {{ item.recipients }} — {{ item.until }}</p>
+        <div class="fm-shares-bar">
+          <h2>{{ labels.myShares }}</h2>
+          <button v-if="someSharesSelected" class="butActionDelete fm-bulk-delete" type="button" @click="bulkUnshare">
+            <i class="bi bi-trash"></i> {{ labels.delete }} <span class="fm-bulk-count">({{ selectedShares.size }})</span>
+          </button>
+          <button v-if="someSharesSelected" class="button fm-bulk-clear" type="button" @click="clearShareSelection">{{ labels.cancel || 'Annuler' }}</button>
+        </div>
+        <table v-if="page.shares.length" class="fm-list tagtable liste">
+          <thead>
+            <tr class="liste_titre">
+              <th class="fm-col-check"><input type="checkbox" :checked="allSharesSelected" :indeterminate.prop="someSharesSelected && !allSharesSelected" @change="toggleAllShares($event.target.checked)" aria-label="select all" /></th>
+              <th>{{ labels.name || 'Document' }}</th>
+              <th class="fm-col-size">{{ labels.size || 'Taille' }}</th>
+              <th>{{ labels.recipients || 'Destinataires' }}</th>
+              <th>{{ labels.until || 'Expiration' }}</th>
+              <th>{{ labels.link || 'Lien' }}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in page.shares" :key="item.id" class="oddeven fm-row" :class="{ selected: selectedShares.has(item.id) }">
+              <td class="fm-col-check"><input type="checkbox" :checked="selectedShares.has(item.id)" @change="toggleShare(item, $event.target.checked)" :aria-label="item.name" /></td>
+              <td class="fm-col-name">
+                <i :class="['bi', item.icon || 'bi-file-earmark']" :style="{ color: item.color || '#6c757d' }"></i>
+                <span class="fm-row-name">{{ item.name }}</span>
+                <span v-if="item.shareTitle && item.shareTitle !== item.name" class="opacitymedium">· {{ item.shareTitle }}</span>
+              </td>
+              <td class="fm-col-size">{{ formatSize(item.size) }}</td>
+              <td>{{ item.recipients || '—' }}</td>
+              <td>{{ item.until || '—' }}</td>
+              <td><a v-if="item.shareLink" :href="item.shareLink" target="_blank" rel="noopener">{{ item.shareLink }}</a><span v-else>—</span></td>
+              <td class="fm-col-actions">
+                <button type="button" class="fm-more" @click.stop="go({ section: 'explorer', preview: item.id })">{{ labels.open || 'Ouvrir' }}</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
         <p v-if="!page.shares.length" class="opacitymedium">{{ labels.empty }}</p>
       </section>
 
@@ -331,7 +525,8 @@ const configTabs = ['general', 'display', 'cloud', 'tray', 'templates', 'validit
         <h2>{{ labels.signatures }}</h2>
         <p class="opacitymedium">{{ labels.signInternal }} {{ labels.qualifiedNote }}</p>
         <form v-if="page.preview" class="fm-form" @submit.prevent="call('sign', { id: page.preview.id, section: page.section, provider: $event.target.provider.value, note: $event.target.note.value }).catch((cause) => { error.value = cause.message })">
-          <select name="provider" class="flat"><option value="internal">{{ labels.sign }}</option><option value="docuseal">DocuSeal</option><option value="yousign">Yousign</option></select>
+          <input type="hidden" name="provider" :value="formValues.provider" />
+          <SearchableSelect v-model="formValues.provider" :options="providerOptions" :placeholder="''" />
           <textarea name="note" class="flat" rows="3"></textarea>
           <button class="butAction" type="submit">{{ labels.sign }}</button>
         </form>
@@ -349,7 +544,11 @@ const configTabs = ['general', 'display', 'cloud', 'tray', 'templates', 'validit
       <section v-else class="fm-explorer" :class="page.view">
         <div class="fm-source-tabs">
           <button type="button" :class="{ selected: page.source === 'erp' }" @click="go({ source: 'erp', folder: '' })">{{ labels.erp }}</button>
-          <button type="button" :class="{ selected: page.source === 'ged' }" @click="go({ source: 'ged', folder: '' })">{{ labels.ged }}</button>
+          <button type="button" :class="{ selected: page.source === 'ged' }" @click="go({ source: 'ged', folder: '' })">{{ labels.list || 'Liste' }}</button>
+          <span class="fm-view-tab" :class="{ on: gridOverride }">
+            <span class="fm-view-label">{{ labels.view || 'Vue' }}</span>
+            <button type="button" class="fm-view-toggle" @click="gridOverride = !gridOverride" :title="labels.view || 'Vue'"><i class="bi" :class="gridOverride ? 'bi-list' : 'bi-grid'"></i></button>
+          </span>
           <button v-for="item in page.sources.filter((row) => !['erp', 'ged'].includes(row.code))" :key="item.code" type="button" :class="{ selected: page.source === item.code }" @click="go({ source: item.code, folder: '' })">{{ item.label }}</button>
         </div>
         <div class="fm-toolbar">
@@ -358,13 +557,16 @@ const configTabs = ['general', 'display', 'cloud', 'tray', 'templates', 'validit
           <form @submit.prevent="upload($event).catch((cause) => { error.value = cause.message })"><input name="upload" type="file" required /><button type="submit"><i class="bi bi-cloud-upload"></i></button></form>
           <form @submit.prevent="call('mkdir', { name: $event.target.name.value, section: 'explorer' }).then(() => $event.target.reset()).catch((cause) => { error.value = cause.message })"><input name="name" class="flat" :placeholder="labels.folder" required /><button type="submit"><i class="bi bi-folder-plus"></i></button></form>
           <form class="fm-search" @submit.prevent="go({ q: page.q })"><input v-model="page.q" class="flat" :placeholder="labels.search" /></form>
-          <button type="button" @click="go({ view: page.view === 'grid' ? 'list' : 'grid' })"><i class="bi" :class="page.view === 'grid' ? 'bi-list' : 'bi-grid'"></i></button>
+          <button v-if="someSelected" class="butActionDelete fm-bulk-delete" type="button" @click="bulkTrash">
+            <i class="bi bi-trash"></i> {{ labels.delete }} <span class="fm-bulk-count">({{ selected.size }})</span>
+          </button>
+          <button v-if="someSelected" class="button fm-bulk-clear" type="button" @click="clearSelection">{{ labels.cancel || 'Annuler' }}</button>
         </div>
         <p class="fm-crumbs">
           <button type="button" @click="go({ folder: '' })">ECM</button>
           <template v-for="crumb in page.crumbs" :key="crumb.id"> / <button type="button" @click="go({ folder: crumb.id })">{{ crumb.name }}</button></template>
         </p>
-        <div class="fm-grid">
+        <div v-if="effectiveView === 'grid'" class="fm-grid">
           <article v-for="node in page.nodes" :key="node.id" @contextmenu.prevent="openMenu($event, node)" @dblclick="node.kind === 'folder' ? go({ folder: node.id }) : (node.pdf ? go({ section: 'editor', preview: node.id, id: node.id }) : go({ preview: node.id }))">
             <i :class="['bi', node.icon || 'bi-file-earmark']" :style="{ color: node.color || '#6c757d' }"></i>
             <span>{{ node.name }}</span>
@@ -372,6 +574,31 @@ const configTabs = ['general', 'display', 'cloud', 'tray', 'templates', 'validit
           </article>
           <p v-if="!page.nodes.length" class="opacitymedium">{{ labels.empty }}</p>
         </div>
+        <table v-else class="fm-list tagtable liste">
+          <thead>
+            <tr class="liste_titre">
+              <th class="fm-col-check"><input type="checkbox" :checked="allSelected" :indeterminate.prop="someSelected && !allSelected" @change="toggleAll($event.target.checked)" aria-label="select all" /></th>
+              <th class="fm-col-name">{{ labels.name || 'Nom' }}</th>
+              <th class="fm-col-size">{{ labels.size || 'Taille' }}</th>
+              <th class="fm-col-date">{{ labels.updated || 'Modifié' }}</th>
+              <th class="fm-col-actions"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="!page.nodes.length"><td colspan="5" class="opacitymedium">{{ labels.empty }}</td></tr>
+            <tr v-for="node in page.nodes" :key="node.id" class="oddeven fm-row" :class="{ selected: selected.has(node.id) }" @contextmenu.prevent="openMenu($event, node)" @dblclick="node.kind === 'folder' ? go({ folder: node.id }) : (node.pdf ? go({ section: 'editor', preview: node.id, id: node.id }) : go({ preview: node.id }))">
+              <td class="fm-col-check"><input type="checkbox" :checked="selected.has(node.id)" @change="toggleNode(node, $event.target.checked)" @click.stop :aria-label="node.name" /></td>
+              <td class="fm-col-name">
+                <i :class="['bi', node.icon || 'bi-file-earmark']" :style="{ color: node.color || '#6c757d' }"></i>
+                <span class="fm-row-name">{{ node.name }}</span>
+                <span v-if="node.trashed" class="badge badge-cancelled">{{ labels.trashName || 'Corbeille' }}</span>
+              </td>
+              <td class="fm-col-size">{{ formatSize(node.size) }}</td>
+              <td class="fm-col-date">{{ formatDate(node.updated) }}</td>
+              <td class="fm-col-actions"><button type="button" class="fm-more" @click.stop="openMenu($event, node)">...</button></td>
+            </tr>
+          </tbody>
+        </table>
         <aside v-if="page.preview && page.section === 'explorer'" class="library-preview">
           <h2>{{ page.preview.name }}</h2>
           <img v-if="page.preview.mime && page.preview.mime.startsWith('image/')" :src="page.preview.url" :alt="page.preview.name" />
@@ -403,16 +630,32 @@ const configTabs = ['general', 'display', 'cloud', 'tray', 'templates', 'validit
       <form v-if="dialog === 'share'" class="fm-dialog" @submit.prevent="submitDialog($event, 'share', { section: 'shares' })">
         <h2>{{ labels.shareTitle }}</h2>
         <p>{{ dialogNode.name }}</p>
-        <label>{{ labels.shareName }}<input name="title" class="flat" :value="dialogNode.name" /></label>
-        <label>{{ labels.recipients }}<input name="recipients" class="flat" placeholder="client@example.com" /></label>
-        <label>{{ labels.until }}<input name="until" class="flat" type="date" /></label>
-        <label>{{ labels.password }}<input name="password" class="flat" /></label>
-        <label>{{ labels.downloadMax }}<input name="maxDownloads" class="flat" /></label>
-        <label><input name="notify" type="checkbox" value="1" /> {{ labels.notify }}</label>
-        <textarea name="message" class="flat" rows="3"></textarea>
-        <p class="opacitymedium">{{ labels.mail }}</p>
-        <button type="button" @click="dialog = null">{{ labels.cancel }}</button>
-        <button class="butAction" type="submit">{{ labels.createShare }}</button>
+        <div v-if="createdShareLink || createdDownloadLink" class="fm-share-link">
+          <p class="fm-share-done">{{ labels.shareCreated || 'Lien de partage créé' }}</p>
+          <label v-if="createdShareLink">{{ labels.shareLink || 'Lien de partage' }}<input class="flat fm-share-url" :value="(createdShareLink.startsWith('http') ? createdShareLink : window.location.origin + createdShareLink)" readonly @focus="$event.target.select()" /></label>
+          <div v-if="createdShareLink" class="fm-share-actions">
+            <button type="button" @click="copyText(createdShareLink, 'share')">{{ copied === 'share' ? (labels.copied || 'Copié') : (labels.copy || 'Copier') }}</button>
+            <a class="butAction" :href="createdShareLink" target="_blank">{{ labels.open || 'Ouvrir' }}</a>
+          </div>
+          <label v-if="createdDownloadLink">{{ labels.downloadLink || 'Lien de téléchargement' }}<input class="flat fm-share-url" :value="(createdDownloadLink.startsWith('http') ? createdDownloadLink : window.location.origin + createdDownloadLink)" readonly @focus="$event.target.select()" /></label>
+          <div v-if="createdDownloadLink" class="fm-share-actions">
+            <button type="button" @click="copyText(createdDownloadLink, 'download')">{{ copied === 'download' ? (labels.copied || 'Copié') : (labels.copy || 'Copier') }}</button>
+            <a class="butAction" :href="createdDownloadLink" target="_blank">{{ labels.download || 'Télécharger' }}</a>
+          </div>
+          <button type="button" @click="dialog = null">{{ labels.close || 'Fermer' }}</button>
+        </div>
+        <template v-else>
+          <label>{{ labels.shareName }}<input name="title" class="flat" :value="dialogNode.name" /></label>
+          <label>{{ labels.recipients }}<input name="recipients" class="flat" placeholder="client@example.com" /></label>
+          <label>{{ labels.until }}<input name="until" class="flat" type="date" /></label>
+          <label>{{ labels.password }}<input name="password" class="flat" /></label>
+          <label>{{ labels.downloadMax }}<input name="maxDownloads" class="flat" /></label>
+          <label><input name="notify" type="checkbox" value="1" /> {{ labels.notify }}</label>
+          <textarea name="message" class="flat" rows="3"></textarea>
+          <p class="opacitymedium">{{ labels.mail }}</p>
+          <button type="button" @click="dialog = null">{{ labels.cancel }}</button>
+          <button class="butAction" type="submit">{{ labels.createShare }}</button>
+        </template>
       </form>
       <form v-else-if="dialog === 'appearance'" class="fm-dialog" @submit.prevent="submitDialog($event, 'appearance')">
         <h2>{{ labels.customize }}</h2>
@@ -443,20 +686,23 @@ const configTabs = ['general', 'display', 'cloud', 'tray', 'templates', 'validit
       </form>
       <form v-else-if="dialog === 'sign'" class="fm-dialog" @submit.prevent="submitDialog($event, 'sign')">
         <h2>{{ labels.signatures }}</h2>
-        <select name="provider" class="flat"><option value="internal">{{ labels.sign }}</option><option value="docuseal">DocuSeal</option><option value="yousign">Yousign</option></select>
+        <input type="hidden" name="provider" :value="formValues.provider" />
+        <SearchableSelect v-model="formValues.provider" :options="providerOptions" :placeholder="''" />
         <textarea name="note" class="flat" rows="3"></textarea>
         <p class="opacitymedium">{{ labels.qualifiedNote }}</p>
         <button class="butAction" type="submit">{{ labels.sign }}</button>
       </form>
       <form v-else-if="dialog === 'validity'" class="fm-dialog" @submit.prevent="submitDialog($event, 'meta', { section: 'validity' })">
         <h2>{{ labels.addValidity }}</h2>
-        <select name="docType" class="flat"><option v-for="item in page.docTypes" :key="item" :value="item">{{ item }}</option></select>
+        <input type="hidden" name="docType" :value="formValues.docType" />
+        <SearchableSelect v-model="formValues.docType" :options="docTypeOptions" :placeholder="''" />
         <input name="expires" class="flat" type="date" required />
         <button class="butAction" type="submit">{{ labels.save }}</button>
       </form>
       <form v-else class="fm-dialog" @submit.prevent="submitDialog($event, 'pdf', { section: 'editor', preview: dialogNode.id, tool: $event.target.tool.value })">
         <h2>{{ labels.pdfTools }}</h2>
-        <select name="tool" class="flat"><option value="text">{{ labels.text }}</option><option value="stamp">{{ labels.stamp }}</option><option value="split">{{ labels.split }}</option></select>
+        <input type="hidden" name="tool" :value="formValues.tool" />
+        <SearchableSelect v-model="formValues.tool" :options="toolOptions" :placeholder="''" />
         <textarea name="note" class="flat" rows="3"></textarea>
         <button class="butAction" type="submit">{{ labels.applyTool }}</button>
       </form>

@@ -3,6 +3,7 @@ import { computed, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, ensureUser, remember } from './api'
 import { groupOpen, href, matches, menuFolds, visibleEntries } from './nav'
+import SearchableSelect from './components/SearchableSelect.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -10,6 +11,7 @@ const locale = ref(localStorage.getItem('atelier.locale') || 'fr')
 const nav = ref({ menus: [], languages: [], chrome: {} })
 const account = ref(null)
 const error = ref('')
+const languageOptions = computed(() => (nav.value.languages || []).map((language) => ({ value: language.code, label: language.name })))
 const menuOpen = ref(false)
 const sideQuery = ref('')
 
@@ -49,10 +51,6 @@ function iconFor(screen) {
     if (entry?.icon) return entry.icon
   }
   return 'bi-speedometer2'
-}
-
-function chooseLocale(event) {
-  locale.value = event.target.value
 }
 
 function searchSide() {
@@ -123,9 +121,7 @@ provide('iconFor', iconFor)
         </div>
       </div>
       <div class="login_block">
-        <select :value="locale" aria-label="language" @change="chooseLocale">
-          <option v-for="language in nav.languages" :key="language.code" :value="language.code">{{ language.name }}</option>
-        </select>
+        <SearchableSelect class="ss-locale" :model-value="locale" :options="languageOptions" @update:model-value="locale = $event" :placeholder="''" />
         <span v-if="account" class="login-name">{{ account.login }}</span>
         <button v-if="account" class="login-out" type="button" @click="logout">{{ nav.chrome['auth.signOut'] }}</button>
         <a v-if="nav.gsp" href="http://localhost:8080">{{ nav.chrome['gsp.link'] }}</a>

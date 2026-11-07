@@ -16,13 +16,14 @@ export async function ensureUser() {
   return known
 }
 
-export async function api(path, { locale = 'fr', method = 'GET', body } = {}) {
+export async function api(path, { locale = 'fr', method = 'GET', body, headers = {} } = {}) {
   const join = path.includes('?') ? '&' : '?'
   const response = await fetch(`${path}${join}lang=${encodeURIComponent(locale)}`, {
     method,
     credentials: 'include',
     headers: {
       Accept: 'application/json',
+      ...headers,
       ...(body ? { 'Content-Type': 'application/json' } : {})
     },
     body: body ? JSON.stringify(body) : undefined
