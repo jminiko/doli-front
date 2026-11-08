@@ -1,11 +1,12 @@
 <script setup>
 import { computed, inject, reactive, ref, watch } from 'vue'
-import { api } from '../api'
+import { api, assertFormSize } from '../api'
 import SearchableSelect from '../components/SearchableSelect.vue'
 
 const props = defineProps({ page: { type: Object, required: true } })
 const emit = defineEmits(['update'])
 const locale = inject('locale')
+const nav = inject('nav')
 const error = inject('error')
 const menu = ref(null)
 const dialog = ref(null)
@@ -84,6 +85,7 @@ async function call(verb, extra = {}) {
 }
 
 async function upload(event, verb = 'upload') {
+  assertFormSize(event.target, nav.value)
   const data = new FormData(event.target)
   data.set('source', props.page.source || '')
   data.set('folder', props.page.folder || '')

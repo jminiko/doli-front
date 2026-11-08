@@ -1,13 +1,14 @@
 <script setup>
 import { computed, inject, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api } from '../api'
+import { api, assertUploadSize } from '../api'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import RichEditor from '../components/RichEditor.vue'
 
 const props = defineProps({ page: { type: Object, required: true } })
 const emit = defineEmits(['update'])
 const locale = inject('locale')
+const nav = inject('nav')
 const error = inject('error')
 const route = useRoute()
 const router = useRouter()
@@ -123,6 +124,7 @@ async function call(verb, extra = {}) {
 async function upload(event) {
   const file = event.target.files?.[0]
   if (!file) return
+  assertUploadSize(file, nav.value)
   const data = new FormData()
   data.set('websiteId', String(props.page.websiteId || ''))
   data.set('pageId', String(props.page.page?.id || ''))

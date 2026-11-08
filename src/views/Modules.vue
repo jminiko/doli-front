@@ -1,6 +1,6 @@
 <script setup>
 import { inject, onMounted, ref } from 'vue'
-import { api } from '../api'
+import { api, assertFormSize } from '../api'
 
 const locale = inject('locale')
 const nav = inject('nav')
@@ -18,6 +18,7 @@ async function toggle(code) {
 }
 
 async function install(event) {
+  assertFormSize(event.target, nav.value)
   const data = new FormData(event.target)
   const response = await fetch(`/api/modules/install?lang=${encodeURIComponent(locale.value)}`, {
     method: 'POST',

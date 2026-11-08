@@ -1,7 +1,7 @@
 <script setup>
 import { computed, inject, nextTick, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api } from '../api'
+import { api, assertFormSize } from '../api'
 import SearchableSelect from '../components/SearchableSelect.vue'
 
 const route = useRoute()
@@ -111,6 +111,7 @@ async function setRight(op, extra) {
 }
 
 async function uploadTab(event) {
+  assertFormSize(event.target, nav.value)
   const data = new FormData(event.target)
   data.set('op', 'create')
   const response = await fetch(`/api/screens/${route.params.id}/${route.params.rowId}/tab/${form.value.activeTab}?lang=${encodeURIComponent(locale.value)}`, {
@@ -135,6 +136,7 @@ async function trayAct(verb, extra) {
 }
 
 async function trayUpload(event) {
+  assertFormSize(event.target, nav.value)
   const data = new FormData(event.target)
   data.set('folder', form.value.tray.folder || '')
   data.set('ownerType', form.value.tray.ownerType || '')
