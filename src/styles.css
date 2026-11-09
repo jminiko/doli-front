@@ -309,8 +309,12 @@ div.tabBar {
 }
 
 table.border, table.liste { width: 100%; border-collapse: separate; border-spacing: 0; }
-table.border { background: var(--surface); border-radius: var(--radius); overflow: hidden; }
+table.border { background: var(--surface); border-radius: var(--radius); }
 table.border td { border-bottom: 1px solid var(--line); padding: 8px 10px; vertical-align: middle; }
+table.border tr:first-child td:first-child { border-top-left-radius: var(--radius); }
+table.border tr:first-child td:last-child { border-top-right-radius: var(--radius); }
+table.border tr:last-child td:first-child { border-bottom-left-radius: var(--radius); }
+table.border tr:last-child td:last-child { border-bottom-right-radius: var(--radius); }
 td.titlefield, td.titlefieldcreate { width: 220px; color: var(--muted); white-space: nowrap; }
 table.liste {
   background: var(--surface);
@@ -343,7 +347,9 @@ input.flat:focus, select.flat:focus, textarea.flat:focus {
   border-color: var(--glow);
   box-shadow: 0 0 0 3px rgba(46, 230, 199, 0.28);
 }
-table.border input.flat, table.border select.flat, table.border textarea.flat { width: 100%; max-width: 460px; }
+table.border input.flat, table.border select.flat, table.border textarea.flat { width: 100%; max-width: 720px; }
+table.border .searchable-select, table.border .ss-combo { width: 100%; max-width: 720px; }
+table.border .ss-panel { max-width: 720px; }
 table.liste input.flat, table.liste select.flat { width: 100%; }
 input.flat[type="checkbox"] { width: auto; }
 textarea.flat { min-height: 72px; }
