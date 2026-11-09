@@ -5,6 +5,7 @@ import { api } from '../api'
 import { href } from '../nav'
 import FileLibrary from './FileLibrary.vue'
 import ImmoDesk from './ImmoDesk.vue'
+import AtsDesk from './AtsDesk.vue'
 import WebsiteStudio from './WebsiteStudio.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 
@@ -187,6 +188,7 @@ watch(() => route.fullPath, () => load().catch((cause) => { error.value = cause.
     <FileLibrary v-else-if="page.kind === 'library'" :page="page" @update="page = $event" />
     <WebsiteStudio v-else-if="page.kind === 'studio'" :page="page" @update="page = $event" />
     <ImmoDesk v-else-if="page.kind === 'ledger'" :page="page" @update="page = $event" />
+    <AtsDesk v-else-if="page.kind === 'ats'" :page="page" @update="page = $event" />
     <form v-else-if="page.kind === 'vat'" @submit.prevent="save().catch((cause) => { error.value = cause.message })">
       <table class="border">
         <tbody>

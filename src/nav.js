@@ -15,9 +15,9 @@ export function href(entry) {
 function sameQuery(expected, actual) {
   const left = new URLSearchParams(expected || '')
   const right = new URLSearchParams(actual || '')
-  const keys = new Set([...left.keys(), ...right.keys()])
-  for (const key of keys) {
-    if (key === 'lang' || key === 'id' || key === 'row') continue
+  for (const key of left.keys()) {
+    if (key === 'lang' || key === 'id') continue
+    if (key === 'section' && left.get(key) === 'dashboard' && !right.get(key)) continue
     if ((left.get(key) || '') !== (right.get(key) || '')) return false
   }
   return true

@@ -67,7 +67,7 @@ watch(locale, (value) => {
 })
 
 watch(() => route.path, (path) => {
-  if (path !== '/login') load()
+  if (path !== '/login' && path !== '/careers') load()
 }, { immediate: true })
 
 watch(() => route.fullPath, () => {
@@ -95,7 +95,7 @@ provide('iconFor', iconFor)
 </script>
 
 <template>
-  <router-view v-if="route.path === '/login'" />
+  <router-view v-if="route.path === '/login' || route.path === '/careers'" />
   <div v-else id="id-container" :class="{ 'sidebar-open': menuOpen }">
     <header id="id-top" class="side-nav-vert">
       <div id="tmenu_tooltip">
