@@ -6,6 +6,7 @@ import { href } from '../nav'
 import FileLibrary from './FileLibrary.vue'
 import ImmoDesk from './ImmoDesk.vue'
 import AtsDesk from './AtsDesk.vue'
+import MailboxDesk from './MailboxDesk.vue'
 import WebsiteStudio from './WebsiteStudio.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 
@@ -74,8 +75,22 @@ watch(() => route.fullPath, () => load().catch((cause) => { error.value = cause.
     <p v-if="page.notice" class="message">{{ page.notice }}</p>
     <p v-for="alert in page.alerts || []" :key="alert" class="error">{{ alert }}</p>
     <p v-if="page.hint" class="opacitymedium">{{ page.hint }}</p>
+    <iframe v-if="page.kind === 'frame' && page.url" class="external-frame" :src="page.url" :title="page.title" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin"></iframe>
 
-    <div v-if="page.kind === 'summary'" class="box-grid">
+    <div v-if="page.kind === 'stats'" class="div-table-responsive">
+      <p class="opacitymedium">{{ page.total }}<span v-if="page.amount != null"> · {{ page.amountLabel }} {{ page.amount }}</span></p>
+      <table class="tagtable liste">
+        <tbody>
+          <tr v-for="slice in page.slices" :key="slice.code || 'all'">
+            <td>{{ slice.label }}</td>
+            <td class="right">{{ slice.count }}</td>
+            <td v-if="slice.amount != null" class="right">{{ slice.amount }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div v-else-if="page.kind === 'summary'" class="box-grid">
       <router-link v-for="(card, index) in page.cards" :key="card.id" class="info-box" :to="href(card)">
         <span class="info-box-icon" :class="'bg' + ((index % 6) + 1)"><i :class="['bi', card.icon || 'bi-sliders']"></i></span>
         <span class="info-box-content"><span class="info-box-title">{{ card.label }}</span></span>
@@ -189,6 +204,7 @@ watch(() => route.fullPath, () => load().catch((cause) => { error.value = cause.
     <WebsiteStudio v-else-if="page.kind === 'studio'" :page="page" @update="page = $event" />
     <ImmoDesk v-else-if="page.kind === 'ledger'" :page="page" @update="page = $event" />
     <AtsDesk v-else-if="page.kind === 'ats'" :page="page" @update="page = $event" />
+    <MailboxDesk v-else-if="page.kind === 'mailbox'" :page="page" @update="page = $event" />
     <form v-else-if="page.kind === 'vat'" @submit.prevent="save().catch((cause) => { error.value = cause.message })">
       <table class="border">
         <tbody>

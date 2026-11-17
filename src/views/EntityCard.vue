@@ -2,7 +2,10 @@
 import { computed, inject, nextTick, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, assertFormSize } from '../api'
+import FileUpload from '../components/FileUpload.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import ThirdPartyCard from '../components/ThirdPartyCard.vue'
+import ThirdPartyForm from '../components/ThirdPartyForm.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -56,6 +59,17 @@ function fill(payload) {
     } else if (field.type === 'ref' || field.type === 'enum') {
       values[field.name] = String(values[field.name])
     }
+  }
+  if (payload.screen?.layout === 'thirdparty') {
+    const status = values.customerStatus || 'none'
+    values.prospect = status === 'prospect' || status === 'both'
+    values.customer = status === 'customer' || status === 'both'
+    values.supplier = values.supplier === true
+    values.noEmail = values.noEmail === true
+    values.vatSubject = values.vatSubject === true
+    if (!values.country) values.country = 'FR'
+    if (!values.currency) values.currency = 'EUR'
+    if (!values.status) values.status = 'open'
   }
   if (payload.screen.layout === 'project') {
     ;['usageOpportunity', 'usageTask', 'usageBillTime', 'shared'].forEach((name) => {
@@ -135,19 +149,6 @@ async function trayAct(verb, extra) {
   await load()
 }
 
-async function trayUpload(event) {
-  assertFormSize(event.target, nav.value)
-  const data = new FormData(event.target)
-  data.set('folder', form.value.tray.folder || '')
-  data.set('ownerType', form.value.tray.ownerType || '')
-  data.set('ownerId', form.value.tray.ownerId || '')
-  const response = await fetch(`/api/plugins/filemanager/upload?lang=${encodeURIComponent(locale.value)}`, { method: 'POST', credentials: 'include', body: data })
-  const result = await response.json()
-  if (!response.ok) throw new Error(result.error || response.statusText)
-  event.target.reset()
-  await load()
-}
-
 async function removeTab(line) {
   if (!window.confirm(nav.value?.chrome?.['action.confirmDelete'] || '')) return
   fill(await api(`/api/screens/${route.params.id}/${route.params.rowId}/tab/${form.value.activeTab}`, {
@@ -174,7 +175,7 @@ async function save() {
     ? await api(`/api/screens/${route.params.id}/${route.params.rowId}`, { locale: locale.value, method: 'PUT', body })
     : await api(`/api/screens/${route.params.id}`, { locale: locale.value, method: 'POST', body })
   password.value = ''
-  if (form.value.screen.layout === 'project') {
+  if (form.value.screen.layout === 'project' || form.value.screen.layout === 'thirdparty') {
     await router.replace({ path: `/screens/${route.params.id}/${saved.row.id}`, query: {} })
   } else if (!route.params.rowId) {
     await router.replace(`/screens/${route.params.id}/${saved.row.id}`)
@@ -224,6 +225,7 @@ function badgeClass(status) {
 
 const project = computed(() => form.value?.screen?.layout === 'project')
 const service = computed(() => form.value?.screen?.layout === 'service')
+const party = computed(() => form.value?.screen?.layout === 'thirdparty')
 const vatRates = computed(() => {
   const rates = ['0', '2.1', '5.5', '10', '20']
   const current = String(values.vatRate ?? '')
@@ -300,8 +302,13 @@ watch(descriptionSource, (on) => {
   })
 })
 const viewing = computed(() => project.value && !!form.value?.row?.id && route.query.mode !== 'edit')
+const partyViewing = computed(() => party.value && !!form.value?.row?.id && route.query.mode !== 'edit')
 const creating = computed(() => project.value && !form.value?.row?.id)
-const heading = computed(() => creating.value ? (nav.value?.chrome?.['menu.newProject'] || form.value.screen.title) : form.value.screen.title)
+const heading = computed(() => {
+  if (party.value && !form.value?.row?.id) return nav.value?.chrome?.['thirdparty.heading'] || form.value.screen.title
+  if (party.value && form.value?.row?.values?.name) return form.value.row.values.name
+  return creating.value ? (nav.value?.chrome?.['menu.newProject'] || form.value.screen.title) : form.value.screen.title
+})
 
 function meta(name) {
   return form.value.screen.fields.find((field) => field.name === name) || { label: name, options: [] }
@@ -338,7 +345,7 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
             <div class="titre"><i :class="['bi', iconFor(form.screen.id)]"></i>{{ heading }}</div>
           </td>
           <td class="col-right">
-            <span v-if="form.row.status && form.row.id && !viewing" :class="badgeClass(form.row.status)">{{ form.row.labels.status || form.row.status }}</span>
+            <span v-if="form.row.status && form.row.id && !viewing && !partyViewing" :class="badgeClass(form.row.status)">{{ form.row.labels.status || form.row.status }}</span>
           </td>
         </tr>
       </tbody>
@@ -356,10 +363,7 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
       <iframe v-if="pickedFile && pickedFile.name?.toLowerCase().endsWith('.pdf')" class="fiche-preview" :src="`/api/plugins/filemanager/raw/${pickedFile.id}`" :title="pickedFile.name"></iframe>
       <p v-else class="opacitymedium">{{ form.tray.labels.preview }}</p>
       <p v-if="trayLink">{{ form.tray.labels.link }} : <a :href="trayLink">{{ trayLink }}</a></p>
-      <form @submit.prevent="run(() => trayUpload($event))">
-        <input name="upload" type="file" required />
-        <button class="butAction" type="submit">{{ form.tray.labels.upload }}</button>
-      </form>
+      <FileUpload :locale="locale" :nav="nav" :folder="form.tray.folder" :owner-type="form.tray.ownerType" :owner-id="form.tray.ownerId" :label="form.tray.labels.upload" @done="load" @fail="(message) => { error.value = message }" />
       <button v-if="pickedFile && !pickedFile.virtual" type="button" @click="run(() => trayAct('share', { id: pickedFile.id }))">{{ form.tray.labels.share }}</button>
       <button v-if="pickedFile && !pickedFile.virtual" type="button" @click="run(() => trayAct('sign', { id: pickedFile.id, provider: 'internal' }))">{{ form.tray.labels.sign }}</button>
     </aside>
@@ -802,6 +806,10 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
         <button v-if="form.row.id" class="butActionDelete" type="button" @click="run(remove)">{{ nav.chrome['action.delete'] }}</button>
       </div>
     </form>
+    <div v-else-if="partyViewing" class="tabBar">
+      <ThirdPartyCard :form="form" @remove="run(remove)" />
+    </div>
+    <ThirdPartyForm v-else-if="party" :form="form" :values="values" @save="run(save)" @remove="run(remove)" />
     <div v-else class="tabBar">
       <form @submit.prevent="run(save)">
         <table class="border tableforfield">

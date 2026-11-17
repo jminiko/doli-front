@@ -10,6 +10,7 @@
   "dependencies": {
     "@ckeditor/ckeditor5-build-classic": "^44.3.0",
     "bootstrap-icons": "^1.13.2",
+    "reka-ui": "^2.11.0",
     "vue": "^3.5.13",
     "vue-router": "^4.5.1"
   },

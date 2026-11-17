@@ -1,6 +1,7 @@
 <script setup>
 import { computed, inject, reactive, ref, watch } from 'vue'
-import { api, assertFormSize } from '../api'
+import { api } from '../api'
+import FileUpload from '../components/FileUpload.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 
 const props = defineProps({ page: { type: Object, required: true } })
@@ -84,19 +85,10 @@ async function call(verb, extra = {}) {
   emit('update', { ...result, title: current.title, icon: current.icon, id: current.id })
 }
 
-async function upload(event, verb = 'upload') {
-  assertFormSize(event.target, nav.value)
-  const data = new FormData(event.target)
-  data.set('source', props.page.source || '')
-  data.set('folder', props.page.folder || '')
-  data.set('section', props.page.section || '')
-  data.set('tab', props.page.tab || '')
-  if (verb === 'version' && props.page.preview?.id) data.set('id', props.page.preview.id)
-  const response = await fetch(`/api/plugins/filemanager/${verb}?lang=${encodeURIComponent(locale.value)}`, { method: 'POST', credentials: 'include', body: data })
-  const result = await response.json()
-  if (!response.ok) throw new Error(result.error || response.statusText)
-  emit('update', { ...result, title: props.page.title, icon: props.page.icon, id: props.page.id })
-  event.target.reset()
+function onUploaded(result) {
+  if (result?.kind) {
+    emit('update', { ...result, title: props.page.title, icon: props.page.icon, id: props.page.id })
+  }
 }
 
 function go(extra) {
@@ -537,10 +529,7 @@ const configTabs = ['general', 'display', 'cloud', 'tray', 'templates', 'validit
 
       <section v-else-if="page.section === 'upload'" class="fm-panel">
         <h2>{{ labels.newDoc }}</h2>
-        <form class="fm-form" @submit.prevent="upload($event).catch((cause) => { error.value = cause.message })">
-          <input name="upload" class="flat" type="file" required />
-          <button class="butAction" type="submit">{{ labels.upload }}</button>
-        </form>
+        <FileUpload :locale="locale" :nav="nav" :folder="page.folder" :source="page.source" section="explorer" :label="labels.upload" @done="onUploaded" @fail="(message) => { error.value = message }" />
       </section>
 
       <section v-else class="fm-explorer" :class="page.view">
@@ -556,7 +545,7 @@ const configTabs = ['general', 'display', 'cloud', 'tray', 'templates', 'validit
         <div class="fm-toolbar">
           <button type="button" @click="go({ folder: page.crumbs.length > 1 ? page.crumbs[page.crumbs.length - 2].id : '' })"><i class="bi bi-arrow-left"></i></button>
           <button type="button" @click="go({})"><i class="bi bi-arrow-clockwise"></i></button>
-          <form @submit.prevent="upload($event).catch((cause) => { error.value = cause.message })"><input name="upload" type="file" required /><button type="submit"><i class="bi bi-cloud-upload"></i></button></form>
+          <FileUpload compact :locale="locale" :nav="nav" :folder="page.folder" :source="page.source" section="explorer" @done="onUploaded" @fail="(message) => { error.value = message }" />
           <form @submit.prevent="call('mkdir', { name: $event.target.name.value, section: 'explorer' }).then(() => $event.target.reset()).catch((cause) => { error.value = cause.message })"><input name="name" class="flat" :placeholder="labels.folder" required /><button type="submit"><i class="bi bi-folder-plus"></i></button></form>
           <form class="fm-search" @submit.prevent="go({ q: page.q })"><input v-model="page.q" class="flat" :placeholder="labels.search" /></form>
           <button v-if="someSelected" class="butActionDelete fm-bulk-delete" type="button" @click="bulkTrash">
