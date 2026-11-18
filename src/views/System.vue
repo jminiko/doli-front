@@ -69,16 +69,21 @@ async function save() {
   if (page.value) page.value.notice = text
 }
 
+function wizardEndpoint() {
+  return page.value?.direction === 'import' ? '/api/exchange/import-wizard' : '/api/exchange/wizard'
+}
+
 async function wizard(op, extra = {}) {
   try {
     const query = new URLSearchParams({ op, lang: locale.value })
     for (const [key, value] of Object.entries(extra)) {
       if (value != null && value !== '') query.set(key, value)
     }
-    const response = await fetch(`/api/exchange/wizard?${query}`, { credentials: 'include' })
+    const response = await fetch(`${wizardEndpoint()}?${query}`, { credentials: 'include' })
     const body = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(body.error || response.statusText)
     page.value = body
+    report.value = body.report || null
   } catch (cause) {
     error.value = cause.message
   }
@@ -89,7 +94,7 @@ async function wizardPost(event) {
     const data = Object.fromEntries(new FormData(event.target).entries())
     const op = data.op || 'filter'
     delete data.op
-    const response = await fetch(`/api/exchange/wizard?op=${encodeURIComponent(op)}&lang=${encodeURIComponent(locale.value)}`, {
+    const response = await fetch(`${wizardEndpoint()}?op=${encodeURIComponent(op)}&lang=${encodeURIComponent(locale.value)}`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -98,9 +103,24 @@ async function wizardPost(event) {
     const body = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(body.error || response.statusText)
     page.value = body
+    report.value = body.report || null
   } catch (cause) {
     error.value = cause.message
   }
+}
+
+async function uploadImport(event) {
+  const data = new FormData(event.target)
+  data.set('wizard', '1')
+  const response = await fetch(`/api/exchange/import?lang=${encodeURIComponent(locale.value)}`, {
+    method: 'POST',
+    credentials: 'include',
+    body: data
+  })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(body.error || response.statusText)
+  page.value = body
+  report.value = body.report || null
 }
 
 function downloadExchange(model) {
@@ -111,20 +131,6 @@ function downloadExchange(model) {
   })
   if (model) query.set('model', '1')
   window.location.assign(`/api/exchange/export?${query}`)
-}
-
-async function runImport(event) {
-  const data = new FormData(event.target)
-  const response = await fetch(`/api/exchange/import?lang=${encodeURIComponent(locale.value)}`, {
-    method: 'POST',
-    credentials: 'include',
-    body: data
-  })
-  const body = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(body.error || response.statusText)
-  await load()
-  report.value = body
-  notice.value = body.summary || ''
 }
 
 onMounted(() => load().catch((cause) => { error.value = cause.message }))
@@ -255,7 +261,78 @@ watch(() => route.fullPath, () => load().catch((cause) => { error.value = cause.
       <ul v-if="report?.errors?.length">
         <li v-for="item in report.errors" :key="`${item.line}-${item.message}`">{{ item.line }} — {{ item.message }}</li>
       </ul>
-      <div v-if="page.wizard">
+      <div v-if="page.wizard && page.direction === 'import'">
+        <div class="tabs">
+          <a v-for="number in page.reached" :key="number" :class="['tab', { tabactive: page.step === number }]" href="#" @click.prevent="wizard('goto', { step: number })">{{ number }}</a>
+        </div>
+        <p class="opacitymedium">{{ page.hint }}</p>
+        <table v-if="page.dataset" class="border">
+          <tbody>
+            <tr><td class="titlefield">{{ page.labels.module }}</td><td>{{ page.dataset.module }}</td></tr>
+            <tr><td class="titlefield">{{ page.labels.dataset }}</td><td>{{ page.dataset.label }}</td></tr>
+          </tbody>
+        </table>
+        <table v-if="page.step === 1" class="tagtable liste">
+          <tbody>
+            <tr class="liste_titre"><th>{{ page.labels.module }}</th><th>{{ page.labels.dataset }}</th></tr>
+            <tr v-for="set in page.datasets" :key="set.id" class="oddeven">
+              <td>{{ set.module }}</td>
+              <td><a href="#" @click.prevent="wizard('dataset', { dataset: set.id })">{{ set.label }}</a></td>
+            </tr>
+          </tbody>
+        </table>
+        <form v-else-if="page.step === 2" @submit.prevent="uploadImport($event).catch((cause) => { error.value = cause.message })">
+          <input type="hidden" name="wizard" value="1">
+          <table class="border">
+            <tbody>
+              <tr>
+                <td class="titlefield"><label for="separator">{{ page.labels.separator }}</label></td>
+                <td>
+                  <select id="separator" class="flat" name="separator">
+                    <option v-for="item in page.separators" :key="item.value" :value="item.value" :selected="item.value === page.separator">{{ item.label }}</option>
+                  </select>
+                </td>
+              </tr>
+              <tr>
+                <td class="titlefield"><label for="charset">{{ page.labels.charset }}</label></td>
+                <td>
+                  <select id="charset" class="flat" name="charset">
+                    <option v-for="item in page.charsets" :key="item.value" :value="item.value" :selected="item.value === page.charset">{{ item.label }}</option>
+                  </select>
+                </td>
+              </tr>
+              <tr>
+                <td class="titlefield"><label for="file">{{ page.labels.file }}</label></td>
+                <td><input id="file" name="file" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" required></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="tabsAction"><button class="butAction" type="submit">{{ page.labels.send }}</button></div>
+        </form>
+        <form v-else-if="page.step === 3" @submit.prevent="wizardPost($event)">
+          <input type="hidden" name="op" value="run">
+          <table class="tagtable liste">
+            <tbody>
+              <tr class="liste_titre"><th>{{ page.labels.column }}</th><th>{{ page.labels.sample }}</th><th>{{ page.labels.target }}</th></tr>
+              <tr v-for="column in page.columns" :key="column.index" class="oddeven">
+                <td>{{ column.header }}</td>
+                <td>{{ column.sample }}</td>
+                <td>
+                  <select class="flat" :name="'map_' + column.index">
+                    <option value="">{{ page.labels.skip }}</option>
+                    <optgroup v-for="group in page.groups" :key="group.label" :label="group.label">
+                      <option v-for="field in group.fields" :key="field.code" :value="field.code" :selected="field.code === column.target">{{ field.label }}</option>
+                    </optgroup>
+                  </select>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p><label><input type="checkbox" name="simulate" value="1"> {{ page.labels.simulate }}</label></p>
+          <div class="tabsAction"><button class="butAction" type="submit">{{ page.labels.launch }}</button></div>
+        </form>
+      </div>
+      <div v-else-if="page.wizard">
         <div class="tabs">
           <a v-for="number in page.reached" :key="number" :class="['tab', { tabactive: page.step === number }]" href="#" @click.prevent="wizard('goto', { step: number })">{{ number }}</a>
         </div>
@@ -398,33 +475,6 @@ watch(() => route.fullPath, () => load().catch((cause) => { error.value = cause.
           <button class="butAction" type="submit">{{ page.labels.download }}</button>
           <button class="butAction" type="button" @click="downloadExchange(true)">{{ page.labels.model }}</button>
         </div>
-      </form>
-      <form v-else @submit.prevent="runImport($event).catch((cause) => { error.value = cause.message })">
-        <table class="border">
-          <tbody>
-            <tr>
-              <td class="titlefield"><label for="dataset">{{ page.labels.dataset }}</label></td>
-              <td>
-                <select id="dataset" v-model="datasetId" class="flat" name="dataset">
-                  <option v-for="set in page.datasets" :key="set.id" :value="set.id">{{ set.label }}</option>
-                </select>
-              </td>
-            </tr>
-            <tr>
-              <td class="titlefield"><label for="separator">{{ page.labels.separator }}</label></td>
-              <td>
-                <select id="separator" v-model="separator" class="flat" name="separator">
-                  <option v-for="item in page.separators" :key="item.value" :value="item.value">{{ item.label }}</option>
-                </select>
-              </td>
-            </tr>
-            <tr>
-              <td class="titlefield"><label for="file">{{ page.labels.file }}</label></td>
-              <td><input id="file" name="file" type="file" accept=".csv,text/csv"></td>
-            </tr>
-          </tbody>
-        </table>
-        <div class="tabsAction"><button class="butAction" type="submit">{{ page.labels.run }}</button></div>
       </form>
       <p v-if="chosen?.fields" class="opacitymedium">{{ page.labels.columns }} : {{ chosen.fields.map((field) => field.name).join(', ') }}</p>
     </div>
