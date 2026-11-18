@@ -62,7 +62,12 @@ async function load() {
 }
 
 function search() {
-  router.push({ path: `/screens/${route.params.id}`, query: keptQuery({ sort: route.query.sort, order: route.query.order }) })
+  router.push({ path: `/screens/${route.params.id}`, query: keptQuery({ sort: route.query.sort, order: route.query.order, offset: null }) })
+}
+
+function chooseFilter(name, value) {
+  filters.value = { ...filters.value, [name]: value }
+  search()
 }
 
 function clearFilters() {
@@ -140,11 +145,11 @@ watch(() => route.fullPath, () => load().catch((cause) => { error.value = cause.
             </tr>
             <tr class="liste_titre_filter">
               <td v-for="column in page.screen.columns" :key="column.name">
-                <select v-if="column.filter === 'select'" v-model="filters[column.name]" class="flat">
+                <select v-if="column.filter === 'select'" class="flat" :value="filters[column.name] || ''" @change="chooseFilter(column.name, $event.target.value)">
                   <option value=""></option>
                   <option v-for="option in column.options" :key="option.value" :value="option.value">{{ option.label }}</option>
                 </select>
-                <select v-else-if="column.filter === 'bool'" v-model="filters[column.name]" class="flat">
+                <select v-else-if="column.filter === 'bool'" class="flat" :value="filters[column.name] || ''" @change="chooseFilter(column.name, $event.target.value)">
                   <option value=""></option>
                   <option value="true">{{ nav.chrome['action.yes'] }}</option>
                   <option value="false">{{ nav.chrome['action.no'] }}</option>

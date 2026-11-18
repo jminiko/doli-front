@@ -1,5 +1,5 @@
 <script setup>
-import { inject, onMounted, reactive, ref, watch } from 'vue'
+import { computed, inject, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api'
 import { href } from '../nav'
@@ -20,6 +20,10 @@ const page = ref(null)
 const values = reactive({})
 const payload = ref('')
 const notice = ref('')
+const datasetId = ref('')
+const separator = ref(';')
+const report = ref(null)
+const chosen = computed(() => (page.value?.datasets || []).find((item) => item.id === datasetId.value) || page.value?.datasets?.[0])
 
 async function load() {
   error.value = ''
@@ -41,6 +45,11 @@ async function load() {
   if (page.value.kind === 'purge') {
     values.days = page.value.days
   }
+  if (page.value.kind === 'exchange') {
+    const ids = (page.value.datasets || []).map((item) => item.id)
+    datasetId.value = ids.includes(datasetId.value) ? datasetId.value : (ids[0] || '')
+    report.value = page.value.report || report.value
+  }
   if (page.value.kind === 'menus') {
     for (const group of page.value.groups || []) {
       for (const entry of group.entries) {
@@ -58,6 +67,64 @@ async function save() {
   await load()
   notice.value = text
   if (page.value) page.value.notice = text
+}
+
+async function wizard(op, extra = {}) {
+  try {
+    const query = new URLSearchParams({ op, lang: locale.value })
+    for (const [key, value] of Object.entries(extra)) {
+      if (value != null && value !== '') query.set(key, value)
+    }
+    const response = await fetch(`/api/exchange/wizard?${query}`, { credentials: 'include' })
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(body.error || response.statusText)
+    page.value = body
+  } catch (cause) {
+    error.value = cause.message
+  }
+}
+
+async function wizardPost(event) {
+  try {
+    const data = Object.fromEntries(new FormData(event.target).entries())
+    const op = data.op || 'filter'
+    delete data.op
+    const response = await fetch(`/api/exchange/wizard?op=${encodeURIComponent(op)}&lang=${encodeURIComponent(locale.value)}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(body.error || response.statusText)
+    page.value = body
+  } catch (cause) {
+    error.value = cause.message
+  }
+}
+
+function downloadExchange(model) {
+  const query = new URLSearchParams({
+    dataset: datasetId.value,
+    separator: separator.value,
+    lang: locale.value
+  })
+  if (model) query.set('model', '1')
+  window.location.assign(`/api/exchange/export?${query}`)
+}
+
+async function runImport(event) {
+  const data = new FormData(event.target)
+  const response = await fetch(`/api/exchange/import?lang=${encodeURIComponent(locale.value)}`, {
+    method: 'POST',
+    credentials: 'include',
+    body: data
+  })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(body.error || response.statusText)
+  await load()
+  report.value = body
+  notice.value = body.summary || ''
 }
 
 onMounted(() => load().catch((cause) => { error.value = cause.message }))
@@ -180,6 +247,187 @@ watch(() => route.fullPath, () => load().catch((cause) => { error.value = cause.
         </tr>
       </tbody>
     </table>
+
+    <div v-else-if="page.kind === 'exchange'">
+      <p v-if="report" class="opacitymedium">
+        {{ page.labels.created }} {{ report.created }} · {{ page.labels.updated }} {{ report.updated }} · {{ page.labels.skipped }} {{ report.skipped }}
+      </p>
+      <ul v-if="report?.errors?.length">
+        <li v-for="item in report.errors" :key="`${item.line}-${item.message}`">{{ item.line }} — {{ item.message }}</li>
+      </ul>
+      <div v-if="page.wizard">
+        <div class="tabs">
+          <a v-for="number in page.reached" :key="number" :class="['tab', { tabactive: page.step === number }]" href="#" @click.prevent="wizard('goto', { step: number })">{{ number }}</a>
+        </div>
+        <table v-if="page.dataset" class="border">
+          <tbody>
+            <tr><td class="titlefield">{{ page.labels.module }}</td><td>{{ page.dataset.module }}</td></tr>
+            <tr><td class="titlefield">{{ page.labels.dataset }}</td><td>{{ page.dataset.label }}</td></tr>
+            <tr v-if="page.step > 2"><td class="titlefield">{{ page.labels.fields }}</td><td>{{ page.summary.fields }}</td></tr>
+            <tr v-if="page.step > 3"><td class="titlefield">{{ page.labels.filtered }}</td><td>{{ page.summary.filtered }}</td></tr>
+          </tbody>
+        </table>
+        <table v-if="page.step === 1" class="tagtable liste">
+          <tbody>
+            <tr class="liste_titre"><th>{{ page.labels.module }}</th><th>{{ page.labels.dataset }}</th></tr>
+            <tr v-for="set in page.datasets" :key="set.id" class="oddeven">
+              <td>{{ set.module }}</td>
+              <td><a href="#" @click.prevent="wizard('dataset', { dataset: set.id })">{{ set.label }}</a></td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-else-if="page.step === 2">
+          <form @submit.prevent="wizard('apply', { profile: $event.target.profile.value })">
+            <label>{{ page.labels.profile }}</label>
+            <select class="flat" name="profile">
+              <option value="">{{ page.labels.noProfile }}</option>
+              <option v-for="profile in page.profiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option>
+            </select>
+            <button class="butAction" type="submit">{{ page.labels.apply }}</button>
+          </form>
+          <p>
+            <a class="butAction" href="#" @click.prevent="wizard('all')">{{ page.labels.all }}</a>
+            <a class="butAction" href="#" @click.prevent="wizard('none')">{{ page.labels.none }}</a>
+          </p>
+          <table class="tagtable liste">
+            <tbody>
+              <tr class="liste_titre"><th>{{ page.labels.module }}</th><th>{{ page.labels.available }}</th><th>{{ page.labels.chosen }}</th></tr>
+              <tr v-for="field in page.available" :key="'a-' + field.code" class="oddeven">
+                <td>{{ field.group }}</td>
+                <td><a href="#" @click.prevent="wizard('toggle', { field: field.code })">{{ field.label }}</a></td>
+                <td></td>
+              </tr>
+              <tr v-for="field in page.selected" :key="'s-' + field.code" class="oddeven">
+                <td>{{ field.group }}</td>
+                <td></td>
+                <td><a href="#" @click.prevent="wizard('toggle', { field: field.code })">{{ field.position }}. {{ field.label }}</a></td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="page.selected.length" class="tabsAction"><a class="butAction" href="#" @click.prevent="wizard('next')">{{ page.labels.next }}</a></div>
+        </div>
+        <form v-else-if="page.step === 3" @submit.prevent="wizardPost($event)">
+          <input type="hidden" name="op" value="filter">
+          <table class="tagtable liste">
+            <tbody>
+              <tr class="liste_titre"><th>{{ page.labels.module }}</th><th>{{ page.labels.available }}</th><th>{{ page.labels.filtered }}</th></tr>
+              <tr v-for="field in page.filters" :key="field.code" class="oddeven">
+                <td>{{ field.group }}</td>
+                <td>{{ field.label }}</td>
+                <td><input class="flat" :name="'filter_' + field.code" :value="field.value"></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="tabsAction"><button class="butAction" type="submit">{{ page.labels.next }}</button></div>
+        </form>
+        <div v-else-if="page.step === 4">
+          <table class="tagtable liste">
+            <tbody>
+              <tr class="liste_titre"><th>{{ page.labels.chosen }}</th><th>{{ page.labels.position }}</th><th>{{ page.labels.order }}</th></tr>
+              <tr v-for="field in page.selected" :key="field.code" class="oddeven">
+                <td>{{ field.group }} — {{ field.label }}</td>
+                <td>{{ field.position }}</td>
+                <td>
+                  <a href="#" @click.prevent="wizard('move', { field: field.code, dir: 'up' })">{{ page.labels.up }}</a>
+                  <a href="#" @click.prevent="wizard('move', { field: field.code, dir: 'down' })">{{ page.labels.down }}</a>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <form @submit.prevent="wizardPost($event)">
+            <input type="hidden" name="op" value="saveProfile">
+            <table class="border">
+              <tbody>
+                <tr><td class="titlefield">{{ page.labels.name }}</td><td><input class="flat" name="name" :value="page.profileName"></td></tr>
+                <tr>
+                  <td class="titlefield">{{ page.labels.visibility }}</td>
+                  <td>
+                    <select class="flat" name="visibility">
+                      <option value="private">{{ page.labels.private_ }}</option>
+                      <option value="public">{{ page.labels.public_ }}</option>
+                    </select>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <button class="butAction" type="submit">{{ page.labels.save }}</button>
+          </form>
+          <div class="tabsAction"><a class="butAction" href="#" @click.prevent="wizard('next')">{{ page.labels.next }}</a></div>
+        </div>
+        <div v-else>
+          <form @submit.prevent="wizard('build', { format: $event.target.format.value })">
+            <label>{{ page.labels.format }}</label>
+            <select class="flat" name="format">
+              <option v-for="format in page.formats" :key="format.id" :value="format.id">{{ format.label }}</option>
+            </select>
+            <button class="butAction" type="submit">{{ page.labels.generate }}</button>
+          </form>
+          <table class="tagtable liste">
+            <tbody>
+              <tr class="liste_titre"><th>{{ page.labels.files }}</th><th></th></tr>
+              <tr v-for="file in page.files" :key="file.name" class="oddeven">
+                <td><a :href="`/api/exchange/file?dataset=${page.dataset.id}&name=${encodeURIComponent(file.name)}`">{{ file.name }}</a> {{ file.size }} {{ file.date }}</td>
+                <td><a href="#" @click.prevent="wizard('remove', { name: file.name })">{{ page.labels.remove }}</a></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <form v-else-if="page.direction === 'export'" @submit.prevent="downloadExchange(false)">
+        <table class="border">
+          <tbody>
+            <tr>
+              <td class="titlefield"><label for="dataset">{{ page.labels.dataset }}</label></td>
+              <td>
+                <select id="dataset" v-model="datasetId" class="flat" name="dataset">
+                  <option v-for="set in page.datasets" :key="set.id" :value="set.id">{{ set.label }}</option>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <td class="titlefield"><label for="separator">{{ page.labels.separator }}</label></td>
+              <td>
+                <select id="separator" v-model="separator" class="flat" name="separator">
+                  <option v-for="item in page.separators" :key="item.value" :value="item.value">{{ item.label }}</option>
+                </select>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="tabsAction">
+          <button class="butAction" type="submit">{{ page.labels.download }}</button>
+          <button class="butAction" type="button" @click="downloadExchange(true)">{{ page.labels.model }}</button>
+        </div>
+      </form>
+      <form v-else @submit.prevent="runImport($event).catch((cause) => { error.value = cause.message })">
+        <table class="border">
+          <tbody>
+            <tr>
+              <td class="titlefield"><label for="dataset">{{ page.labels.dataset }}</label></td>
+              <td>
+                <select id="dataset" v-model="datasetId" class="flat" name="dataset">
+                  <option v-for="set in page.datasets" :key="set.id" :value="set.id">{{ set.label }}</option>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <td class="titlefield"><label for="separator">{{ page.labels.separator }}</label></td>
+              <td>
+                <select id="separator" v-model="separator" class="flat" name="separator">
+                  <option v-for="item in page.separators" :key="item.value" :value="item.value">{{ item.label }}</option>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <td class="titlefield"><label for="file">{{ page.labels.file }}</label></td>
+              <td><input id="file" name="file" type="file" accept=".csv,text/csv"></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="tabsAction"><button class="butAction" type="submit">{{ page.labels.run }}</button></div>
+      </form>
+      <p v-if="chosen?.fields" class="opacitymedium">{{ page.labels.columns }} : {{ chosen.fields.map((field) => field.name).join(', ') }}</p>
+    </div>
 
     <p v-else-if="page.kind === 'backup'">
       <a class="butAction" href="/api/admin/backup">{{ nav.chrome['action.download'] }}</a>
