@@ -3,6 +3,7 @@ import { computed, inject, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, assertFormSize } from '../api'
 import CatalogForm from '../components/CatalogForm.vue'
+import ContactForm from '../components/ContactForm.vue'
 import FileUpload from '../components/FileUpload.vue'
 import RichEditor from '../components/RichEditor.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
@@ -54,6 +55,16 @@ function fill(payload) {
     if (!values.volumeUnit) values.volumeUnit = 'm3'
   }
   if (payload.screen?.layout === 'warehouse' && !values.status) values.status = 'open'
+  if (payload.screen?.layout === 'contact') {
+    ;['noEmail', 'birthdayAlert', 'defaultProposal', 'defaultOrder', 'defaultContract', 'defaultInvoice', 'photoDelete'].forEach((name) => {
+      values[name] = values[name] === true || values[name] === 'true'
+    })
+    values.categories = Array.isArray(values.categories) ? values.categories.map(String) : []
+    if (!values.country) values.country = 'FR'
+    if (!values.visibility) values.visibility = 'shared'
+    if (!values.status) values.status = 'open'
+    if (!values.relation) values.relation = 'other'
+  }
   for (const field of payload.screen?.fields || []) {
     if (field.type === 'boolean') {
       const current = values[field.name]
@@ -184,6 +195,14 @@ async function save() {
   password.value = ''
   if (form.value.screen.layout === 'project' || form.value.screen.layout === 'thirdparty') {
     await router.replace({ path: `/screens/${route.params.id}/${saved.row.id}`, query: {} })
+  } else if (form.value.screen.layout === 'contact') {
+    const back = String(route.query.back || '')
+    const query = {}
+    if (back.startsWith('/screens/') || back.startsWith('/desk/')) {
+      query.back = back
+      if (route.query.backTab) query.backTab = String(route.query.backTab)
+    }
+    await router.replace({ path: `/screens/${route.params.id}/${saved.row.id}`, query })
   } else if (!route.params.rowId) {
     await router.replace(`/screens/${route.params.id}/${saved.row.id}`)
   }
@@ -234,6 +253,7 @@ const project = computed(() => form.value?.screen?.layout === 'project')
 const catalog = computed(() => form.value?.screen?.layout === 'service' || form.value?.screen?.layout === 'product')
 const warehouse = computed(() => form.value?.screen?.layout === 'warehouse')
 const party = computed(() => form.value?.screen?.layout === 'thirdparty')
+const contact = computed(() => form.value?.screen?.layout === 'contact')
 const sharedOptions = computed(() => [
   { value: 'false', label: nav.value?.chrome?.['visibility.private'] || 'Private' },
   { value: 'true', label: nav.value?.chrome?.['visibility.shared'] || 'Shared' }
@@ -244,10 +264,21 @@ const sharedProxy = computed({
 })
 const viewing = computed(() => project.value && !!form.value?.row?.id && route.query.mode !== 'edit')
 const partyViewing = computed(() => party.value && !!form.value?.row?.id && route.query.mode !== 'edit')
+const contactViewing = computed(() => contact.value && !!form.value?.row?.id && route.query.mode !== 'edit')
+const backTo = computed(() => {
+  const path = String(route.query.back || '')
+  if (!(path.startsWith('/screens/') || path.startsWith('/desk/'))) return ''
+  const tab = String(route.query.backTab || '')
+  return tab ? { path, query: { tab } } : path
+})
 const creating = computed(() => project.value && !form.value?.row?.id)
 const heading = computed(() => {
   if (party.value && !form.value?.row?.id) return nav.value?.chrome?.['thirdparty.heading'] || form.value.screen.title
   if (party.value && form.value?.row?.values?.name) return form.value.row.values.name
+  if (contact.value) {
+    const person = [form.value?.row?.values?.firstname, form.value?.row?.values?.lastname].filter(Boolean).join(' ')
+    if (person) return person
+  }
   if (!form.value?.row?.id && form.value?.screen?.layout === 'product') return nav.value?.chrome?.['menu.newProduct'] || 'Nouveau produit'
   if (!form.value?.row?.id && form.value?.screen?.layout === 'service') return nav.value?.chrome?.['menu.newService'] || 'Nouveau service'
   if (!form.value?.row?.id && form.value?.screen?.layout === 'warehouse') return nav.value?.chrome?.['menu.newWarehouse'] || 'Nouvel entrepôt'
@@ -281,6 +312,15 @@ function onTask() {
   if (!values.usageTask) values.usageBillTime = false
 }
 
+function lineTo(line) {
+  if (line.screen === 'contacts') {
+    const query = { back: route.path }
+    if (route.query.tab) query.backTab = String(route.query.tab)
+    return { path: `/screens/contacts/${line.id}`, query }
+  }
+  return `/screens/${line.screen}/${line.id}`
+}
+
 watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.tab, route.query.item, route.query.thirdParty, route.query.project], () => run(load), { immediate: true })
 </script>
 
@@ -293,7 +333,7 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
             <div class="titre"><i :class="['bi', iconFor(form.screen.id)]"></i>{{ heading }}</div>
           </td>
           <td class="col-right">
-            <span v-if="form.row.status && form.row.id && !viewing && !partyViewing" :class="badgeClass(form.row.status)">{{ form.row.labels.status || form.row.status }}</span>
+            <span v-if="form.row.status && form.row.id && !viewing && !partyViewing && !contactViewing" :class="badgeClass(form.row.status)">{{ form.row.labels.status || form.row.status }}</span>
           </td>
         </tr>
       </tbody>
@@ -323,7 +363,8 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
         </router-link>
       </template>
       <router-link v-else class="tab tabactive" :to="route.fullPath">{{ heading }}</router-link>
-      <router-link class="tab" :to="`/screens/${form.screen.id}`">{{ nav.chrome['action.backToList'] || nav.chrome['action.back'] }}</router-link>
+      <router-link v-if="backTo" class="tab" :to="backTo">{{ nav.chrome['action.back'] }}</router-link>
+      <router-link v-else class="tab" :to="`/screens/${form.screen.id}`">{{ nav.chrome['action.backToList'] || nav.chrome['action.back'] }}</router-link>
     </div>
     <div v-if="form.panel" class="tabBar">
       <div v-if="project" class="project-banner">
@@ -355,7 +396,7 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
           <tr v-for="(line, index) in form.panel.rows" :key="index" class="oddeven">
             <td v-for="(cell, cellIndex) in line.cells" :key="cellIndex">
               <a v-if="cellIndex === 0 && form.panel.manage === 'file' && line.itemId" :href="`/api/screens/${form.screen.id}/${form.row.id}/files/${line.itemId}`">{{ cell }}</a>
-              <router-link v-else-if="cellIndex === 0 && line.screen && line.id" :to="`/screens/${line.screen}/${line.id}`">{{ cell }}</router-link>
+              <router-link v-else-if="cellIndex === 0 && line.screen && line.id" :to="lineTo(line)">{{ cell }}</router-link>
               <template v-else>{{ cell }}</template>
             </td>
             <td v-if="line.editable || line.deletable" class="row-actions">
@@ -619,6 +660,7 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
       <ThirdPartyCard :form="form" @remove="run(remove)" />
     </div>
     <ThirdPartyForm v-else-if="party" :form="form" :values="values" @save="run(save)" @remove="run(remove)" />
+    <ContactForm v-else-if="contact" :form="form" :values="values" :editing="!contactViewing" @save="run(save)" @remove="run(remove)" />
     <div v-else class="tabBar">
       <form @submit.prevent="run(save)">
         <table class="border tableforfield">
