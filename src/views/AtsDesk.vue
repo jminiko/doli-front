@@ -2,6 +2,7 @@
 import { inject } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, assertFormSize } from '../api'
+import RichEditor from '../components/RichEditor.vue'
 
 const props = defineProps({ page: { type: Object, required: true } })
 const emit = defineEmits(['update'])
@@ -154,7 +155,8 @@ async function upload(event) {
               <tr v-for="field in page.form.fields" :key="field.name">
                 <td class="titlefield">{{ field.label }}</td>
                 <td>
-                  <textarea v-if="field.type === 'area'" class="flat" :name="field.name" rows="4" :required="field.required">{{ field.value }}</textarea>
+                  <RichEditor v-if="field.type === 'area' && field.name === 'description'" compact :name="field.name" :model-value="field.value || ''" />
+                  <textarea v-else-if="field.type === 'area'" class="flat" :name="field.name" rows="4" :required="field.required">{{ field.value }}</textarea>
                   <select v-else-if="field.options" class="flat" :name="field.name" :required="field.required">
                     <option v-for="option in field.options" :key="`${field.name}-${option.value}`" :value="option.value" :selected="option.value === (field.value || '')">{{ option.label }}</option>
                   </select>

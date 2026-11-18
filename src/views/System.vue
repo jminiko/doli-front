@@ -8,6 +8,7 @@ import ImmoDesk from './ImmoDesk.vue'
 import AtsDesk from './AtsDesk.vue'
 import MailboxDesk from './MailboxDesk.vue'
 import WebsiteStudio from './WebsiteStudio.vue'
+import RichEditor from '../components/RichEditor.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 
 const route = useRoute()
@@ -103,7 +104,8 @@ watch(() => route.fullPath, () => load().catch((cause) => { error.value = cause.
           <tr v-for="field in page.fields" :key="field.name">
             <td class="titlefield"><label :for="'field-' + field.name">{{ field.label }}</label></td>
             <td>
-              <textarea v-if="field.type === 'area'" :id="'field-' + field.name" v-model="values[field.name]" class="flat" rows="3"></textarea>
+              <RichEditor v-if="field.type === 'area' && /description/i.test(field.name)" v-model="values[field.name]" compact />
+              <textarea v-else-if="field.type === 'area'" :id="'field-' + field.name" v-model="values[field.name]" class="flat" rows="3"></textarea>
               <input v-else-if="field.type === 'bool'" :id="'field-' + field.name" v-model="values[field.name]" class="flat" type="checkbox" />
               <SearchableSelect v-else-if="field.type === 'choice'" :id="'field-' + field.name" v-model="values[field.name]" :options="field.options || []" :placeholder="''" />
               <input v-else-if="field.type === 'number'" :id="'field-' + field.name" v-model="values[field.name]" class="flat" type="number" step="any" />

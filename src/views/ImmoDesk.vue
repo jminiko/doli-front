@@ -2,6 +2,7 @@
 import { inject, reactive, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api'
+import RichEditor from '../components/RichEditor.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 
 const props = defineProps({ page: { type: Object, required: true } })
@@ -94,7 +95,8 @@ function submit(event, row) {
             <tr v-for="field in block.form.fields" :key="field.name">
               <td class="titlefield">{{ field.label }}</td>
               <td>
-                <textarea v-if="field.type === 'text'" :name="field.name" class="flat" rows="3" :disabled="block.form.locked">{{ field.value }}</textarea>
+                <RichEditor v-if="field.type === 'text' && field.name === 'description' && !block.form.locked" compact :name="field.name" :model-value="field.value || ''" />
+                <textarea v-else-if="field.type === 'text'" :name="field.name" class="flat" rows="3" :disabled="block.form.locked">{{ field.value }}</textarea>
                 <template v-else-if="field.options">
                   <input type="hidden" :name="field.name" :value="formValues[field.name] || ''" />
                   <SearchableSelect v-model="formValues[field.name]" :options="field.options" :disabled="block.form.locked" :placeholder="''" />
