@@ -977,6 +977,27 @@ table.liste .searchable-select, table.tagtable .searchable-select { max-width: 1
   object-fit: contain;
   flex: 0 0 auto;
 }
+.http-wait {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(16, 20, 31, 0.46);
+}
+.http-wait-spin {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 4px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  animation: http-wait-spin 0.7s linear infinite;
+}
+@keyframes http-wait-spin {
+  to { transform: rotate(360deg); }
+}
+
 .party-identity-icon { display: grid; place-items: center; font-size: 28px; color: var(--accent); }
 .party-alias, .party-codes { margin: 4px 0 0; color: var(--muted); }
 .party-codes { display: flex; flex-wrap: wrap; gap: 6px 16px; }

@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, ensureUser, remember } from './api'
+import { api, ensureUser, httpBusy, remember } from './api'
 import { groupOpen, href, matches, menuFolds, visibleEntries } from './nav'
 import SearchableSelect from './components/SearchableSelect.vue'
 
@@ -190,6 +190,9 @@ provide('iconFor', iconFor)
 </script>
 
 <template>
+  <div v-if="httpBusy" class="http-wait" role="status" aria-live="polite" aria-busy="true">
+    <span class="http-wait-spin"></span>
+  </div>
   <router-view v-if="route.path === '/login' || route.path === '/careers'" />
   <div v-else id="id-container" :class="{ 'sidebar-open': menuOpen }">
     <header id="id-top" class="side-nav-vert">
