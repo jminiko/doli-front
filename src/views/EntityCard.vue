@@ -1,15 +1,10 @@
 <script setup>
-import { computed, inject, reactive, ref, watch } from 'vue'
+import { computed, inject, nextTick, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, assertFormSize } from '../api'
-import CatalogForm from '../components/CatalogForm.vue'
-import ContactForm from '../components/ContactForm.vue'
 import FileUpload from '../components/FileUpload.vue'
-import RichEditor from '../components/RichEditor.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import ThirdPartyCard from '../components/ThirdPartyCard.vue'
 import ThirdPartyForm from '../components/ThirdPartyForm.vue'
-import WarehouseForm from '../components/WarehouseForm.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -23,6 +18,9 @@ const line = reactive({ product: '', description: '', qty: '1', unitPrice: '', v
 const password = ref('')
 const trayLink = ref('')
 const picked = ref('')
+const tagInput = ref('')
+const descriptionSource = ref(false)
+const descriptionEditor = ref(null)
 const pickedFile = computed(() => form.value?.tray?.files?.find((file) => file.id === picked.value))
 const draft = reactive({})
 
@@ -36,34 +34,17 @@ function fill(payload) {
     if (route.query.thirdParty) values.thirdParty = String(route.query.thirdParty)
     if (route.query.project) values.project = String(route.query.project)
   }
-  if (payload.screen?.layout === 'service' || payload.screen?.layout === 'product') {
+  if (payload.screen?.layout === 'service') {
     if (!values.saleStatus) values.saleStatus = 'onsale'
     if (!values.buyStatus) values.buyStatus = 'onbuy'
+    if (!values.durationUnit) values.durationUnit = 'hour'
     if (!values.priceBasis) values.priceBasis = 'ht'
     values.vatRate = String(values.vatRate ?? '20').replace(/\.0$/, '')
     values.dateRangeRequired = values.dateRangeRequired === true || values.dateRangeRequired === 'true'
-  }
-  if (payload.screen?.layout === 'service' && !values.durationUnit) values.durationUnit = 'hour'
-  if (payload.screen?.layout === 'product') {
-    if (!values.batchMode) values.batchMode = 'nobatch'
-    if (!values.sellByMode) values.sellByMode = 'nobylimit'
-    if (!values.barcodeType) values.barcodeType = 'nobarcode'
-    if (!values.nature) values.nature = 'finished'
-    if (!values.weightUnit) values.weightUnit = 'kg'
-    if (!values.sizeUnit) values.sizeUnit = 'm'
-    if (!values.surfaceUnit) values.surfaceUnit = 'm2'
-    if (!values.volumeUnit) values.volumeUnit = 'm3'
-  }
-  if (payload.screen?.layout === 'warehouse' && !values.status) values.status = 'open'
-  if (payload.screen?.layout === 'contact') {
-    ;['noEmail', 'birthdayAlert', 'defaultProposal', 'defaultOrder', 'defaultContract', 'defaultInvoice', 'photoDelete'].forEach((name) => {
-      values[name] = values[name] === true || values[name] === 'true'
+    descriptionSource.value = false
+    nextTick(() => {
+      if (descriptionEditor.value) descriptionEditor.value.innerHTML = values.description || ''
     })
-    values.categories = Array.isArray(values.categories) ? values.categories.map(String) : []
-    if (!values.country) values.country = 'FR'
-    if (!values.visibility) values.visibility = 'shared'
-    if (!values.status) values.status = 'open'
-    if (!values.relation) values.relation = 'other'
   }
   for (const field of payload.screen?.fields || []) {
     if (field.type === 'boolean') {
@@ -193,16 +174,8 @@ async function save() {
     ? await api(`/api/screens/${route.params.id}/${route.params.rowId}`, { locale: locale.value, method: 'PUT', body })
     : await api(`/api/screens/${route.params.id}`, { locale: locale.value, method: 'POST', body })
   password.value = ''
-  if (form.value.screen.layout === 'project' || form.value.screen.layout === 'thirdparty') {
+  if (form.value.screen.layout === 'project') {
     await router.replace({ path: `/screens/${route.params.id}/${saved.row.id}`, query: {} })
-  } else if (form.value.screen.layout === 'contact') {
-    const back = String(route.query.back || '')
-    const query = {}
-    if (back.startsWith('/screens/') || back.startsWith('/desk/')) {
-      query.back = back
-      if (route.query.backTab) query.backTab = String(route.query.backTab)
-    }
-    await router.replace({ path: `/screens/${route.params.id}/${saved.row.id}`, query })
   } else if (!route.params.rowId) {
     await router.replace(`/screens/${route.params.id}/${saved.row.id}`)
   }
@@ -250,10 +223,14 @@ function badgeClass(status) {
 }
 
 const project = computed(() => form.value?.screen?.layout === 'project')
-const catalog = computed(() => form.value?.screen?.layout === 'service' || form.value?.screen?.layout === 'product')
-const warehouse = computed(() => form.value?.screen?.layout === 'warehouse')
+const service = computed(() => form.value?.screen?.layout === 'service')
 const party = computed(() => form.value?.screen?.layout === 'thirdparty')
-const contact = computed(() => form.value?.screen?.layout === 'contact')
+const vatRates = computed(() => {
+  const rates = ['0', '2.1', '5.5', '10', '20']
+  const current = String(values.vatRate ?? '')
+  return current && !rates.includes(current) ? [current, ...rates] : rates
+})
+const vatRateOptions = computed(() => vatRates.value.map((rate) => ({ value: rate, label: `${rate}%` })))
 const sharedOptions = computed(() => [
   { value: 'false', label: nav.value?.chrome?.['visibility.private'] || 'Private' },
   { value: 'true', label: nav.value?.chrome?.['visibility.shared'] || 'Shared' }
@@ -262,35 +239,77 @@ const sharedProxy = computed({
   get: () => (values.shared ? 'true' : 'false'),
   set: (value) => { values.shared = value === 'true' }
 })
-const viewing = computed(() => project.value && !!form.value?.row?.id && route.query.mode !== 'edit')
-const partyViewing = computed(() => party.value && !!form.value?.row?.id && route.query.mode !== 'edit')
-const contactViewing = computed(() => contact.value && !!form.value?.row?.id && route.query.mode !== 'edit')
-const backTo = computed(() => {
-  const path = String(route.query.back || '')
-  if (!(path.startsWith('/screens/') || path.startsWith('/desk/'))) return ''
-  const tab = String(route.query.backTab || '')
-  return tab ? { path, query: { tab } } : path
+const saleStatusOptions = computed(() => [
+  { value: 'onsale', label: nav.value?.chrome?.['service.onsale'] || 'On sale' },
+  { value: 'offsale', label: nav.value?.chrome?.['service.offsale'] || 'Off sale' }
+])
+const buyStatusOptions = computed(() => [
+  { value: 'onbuy', label: nav.value?.chrome?.['service.onbuy'] || 'On buy' },
+  { value: 'offbuy', label: nav.value?.chrome?.['service.offbuy'] || 'Off buy' }
+])
+const durationUnitOptions = computed(() => [
+  { value: 'hour', label: nav.value?.chrome?.['service.hour'] || 'Hour' },
+  { value: 'day', label: nav.value?.chrome?.['service.day'] || 'Day' },
+  { value: 'week', label: nav.value?.chrome?.['service.week'] || 'Week' },
+  { value: 'month', label: nav.value?.chrome?.['service.month'] || 'Month' }
+])
+const priceBasisOptions = computed(() => [
+  { value: 'ht', label: 'HT' },
+  { value: 'ttc', label: 'TTC' }
+])
+const tagList = computed(() => String(values.tags || '').split(',').map((item) => item.trim()).filter(Boolean))
+
+function format(command, argument) {
+  descriptionEditor.value?.focus()
+  document.execCommand(command, false, argument)
+  values.description = descriptionEditor.value?.innerHTML || ''
+}
+
+function addTag() {
+  const text = tagInput.value.trim()
+  if (!text || tagList.value.includes(text)) {
+    tagInput.value = ''
+    return
+  }
+  values.tags = [...tagList.value, text].join(', ')
+  tagInput.value = ''
+}
+
+function openPublicUrl() {
+  const url = String(values.publicUrl || '')
+  if (/^https?:\/\//i.test(url)) window.open(url, '_blank', 'noopener')
+}
+
+function askUrl(fallback) {
+  const url = window.prompt('URL', fallback)
+  return url || ''
+}
+
+function insertLink() {
+  const url = askUrl('https://')
+  if (url) format('createLink', url)
+}
+
+function insertImage() {
+  const url = askUrl('https://')
+  if (url) format('insertImage', url)
+}
+
+watch(descriptionSource, (on) => {
+  if (!on) nextTick(() => {
+    if (descriptionEditor.value) descriptionEditor.value.innerHTML = values.description || ''
+  })
 })
+const viewing = computed(() => project.value && !!form.value?.row?.id && route.query.mode !== 'edit')
 const creating = computed(() => project.value && !form.value?.row?.id)
 const heading = computed(() => {
   if (party.value && !form.value?.row?.id) return nav.value?.chrome?.['thirdparty.heading'] || form.value.screen.title
   if (party.value && form.value?.row?.values?.name) return form.value.row.values.name
-  if (contact.value) {
-    const person = [form.value?.row?.values?.firstname, form.value?.row?.values?.lastname].filter(Boolean).join(' ')
-    if (person) return person
-  }
-  if (!form.value?.row?.id && form.value?.screen?.layout === 'product') return nav.value?.chrome?.['menu.newProduct'] || 'Nouveau produit'
-  if (!form.value?.row?.id && form.value?.screen?.layout === 'service') return nav.value?.chrome?.['menu.newService'] || 'Nouveau service'
-  if (!form.value?.row?.id && form.value?.screen?.layout === 'warehouse') return nav.value?.chrome?.['menu.newWarehouse'] || 'Nouvel entrepôt'
   return creating.value ? (nav.value?.chrome?.['menu.newProject'] || form.value.screen.title) : form.value.screen.title
 })
 
 function meta(name) {
   return form.value.screen.fields.find((field) => field.name === name) || { label: name, options: [] }
-}
-
-function rich(name) {
-  return name === 'description'
 }
 
 function shown(name) {
@@ -312,15 +331,6 @@ function onTask() {
   if (!values.usageTask) values.usageBillTime = false
 }
 
-function lineTo(line) {
-  if (line.screen === 'contacts') {
-    const query = { back: route.path }
-    if (route.query.tab) query.backTab = String(route.query.tab)
-    return { path: `/screens/contacts/${line.id}`, query }
-  }
-  return `/screens/${line.screen}/${line.id}`
-}
-
 watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.tab, route.query.item, route.query.thirdParty, route.query.project], () => run(load), { immediate: true })
 </script>
 
@@ -333,7 +343,7 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
             <div class="titre"><i :class="['bi', iconFor(form.screen.id)]"></i>{{ heading }}</div>
           </td>
           <td class="col-right">
-            <span v-if="form.row.status && form.row.id && !viewing && !partyViewing && !contactViewing" :class="badgeClass(form.row.status)">{{ form.row.labels.status || form.row.status }}</span>
+            <span v-if="form.row.status && form.row.id && !viewing" :class="badgeClass(form.row.status)">{{ form.row.labels.status || form.row.status }}</span>
           </td>
         </tr>
       </tbody>
@@ -363,8 +373,7 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
         </router-link>
       </template>
       <router-link v-else class="tab tabactive" :to="route.fullPath">{{ heading }}</router-link>
-      <router-link v-if="backTo" class="tab" :to="backTo">{{ nav.chrome['action.back'] }}</router-link>
-      <router-link v-else class="tab" :to="`/screens/${form.screen.id}`">{{ nav.chrome['action.backToList'] || nav.chrome['action.back'] }}</router-link>
+      <router-link class="tab" :to="`/screens/${form.screen.id}`">{{ nav.chrome['action.backToList'] || nav.chrome['action.back'] }}</router-link>
     </div>
     <div v-if="form.panel" class="tabBar">
       <div v-if="project" class="project-banner">
@@ -396,7 +405,7 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
           <tr v-for="(line, index) in form.panel.rows" :key="index" class="oddeven">
             <td v-for="(cell, cellIndex) in line.cells" :key="cellIndex">
               <a v-if="cellIndex === 0 && form.panel.manage === 'file' && line.itemId" :href="`/api/screens/${form.screen.id}/${form.row.id}/files/${line.itemId}`">{{ cell }}</a>
-              <router-link v-else-if="cellIndex === 0 && line.screen && line.id" :to="lineTo(line)">{{ cell }}</router-link>
+              <router-link v-else-if="cellIndex === 0 && line.screen && line.id" :to="`/screens/${line.screen}/${line.id}`">{{ cell }}</router-link>
               <template v-else>{{ cell }}</template>
             </td>
             <td v-if="line.editable || line.deletable" class="row-actions">
@@ -470,8 +479,7 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
               <tr v-for="field in form.panel.editor.fields" :key="field.name">
                 <td class="titlefield">{{ field.label }}</td>
                 <td>
-                  <RichEditor v-if="field.type === 'text' && rich(field.name)" v-model="draft[field.name]" compact />
-                  <textarea v-else-if="field.type === 'text'" v-model="draft[field.name]" class="flat" :rows="!field.max || field.max > 255 ? 4 : 2" :required="field.required" />
+                  <textarea v-if="field.type === 'text'" v-model="draft[field.name]" class="flat" :rows="!field.max || field.max > 255 ? 4 : 2" :required="field.required" />
                   <span v-else-if="field.type === 'boolean'" class="field-bool">
                     <label><input type="radio" :name="'tab-' + field.name" :value="true" v-model="draft[field.name]" /> {{ nav.chrome['action.yes'] }}</label>
                     <label><input type="radio" :name="'tab-' + field.name" :value="false" v-model="draft[field.name]" /> {{ nav.chrome['action.no'] }}</label>
@@ -553,7 +561,7 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
             <tbody>
               <tr>
                 <td class="titlefield">{{ meta('description').label }}</td>
-                <td class="project-note" v-html="form.row.values.description"></td>
+                <td class="project-note">{{ form.row.values.description }}</td>
               </tr>
             </tbody>
           </table>
@@ -638,7 +646,7 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
           </tr>
           <tr>
             <td class="titlefield">{{ meta('description').label }}</td>
-            <td><RichEditor v-model="values.description" compact /></td>
+            <td><textarea id="description" v-model="values.description" class="flat" rows="4"></textarea></td>
           </tr>
           <tr>
             <td class="titlefield">{{ nav.chrome['field.visibility'] }}</td>
@@ -654,13 +662,149 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
         <router-link v-else class="butActionDelete" :to="`/screens/${form.screen.id}/${form.row.id}`">{{ nav.chrome['action.cancel'] }}</router-link>
       </div>
     </form>
-    <CatalogForm v-else-if="catalog" :form="form" :values="values" @save="run(save)" @remove="run(remove)" />
-    <WarehouseForm v-else-if="warehouse" :form="form" :values="values" @save="run(save)" @remove="run(remove)" />
-    <div v-else-if="partyViewing" class="tabBar">
-      <ThirdPartyCard :form="form" @remove="run(remove)" />
-    </div>
+    <form v-else-if="service" class="tabBar" @submit.prevent="run(save)">
+      <table class="border tableforfield">
+        <tbody>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.ref'] }}</td>
+            <td><input id="ref" v-model="values.ref" class="flat" maxlength="40" /></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['field.label'] }}</td>
+            <td><input id="label" v-model="values.label" class="flat" required /></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.sale'] }}</td>
+            <td>
+              <SearchableSelect id="saleStatus" v-model="values.saleStatus" :options="saleStatusOptions" :placeholder="''" />
+            </td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.buyState'] }}</td>
+            <td>
+              <SearchableSelect id="buyStatus" v-model="values.buyStatus" :options="buyStatusOptions" :placeholder="''" />
+            </td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['field.description'] }}</td>
+            <td>
+              <div class="rte">
+                <div class="rte-bar">
+                  <select class="flat" aria-label="format" @change="format('formatBlock', $event.target.value); $event.target.value = 'p'">
+                    <option value="p">{{ nav.chrome['service.format'] }}</option>
+                    <option value="h2">H2</option>
+                    <option value="h3">H3</option>
+                    <option value="blockquote">Quote</option>
+                  </select>
+                  <select class="flat" aria-label="size" @change="format('fontSize', $event.target.value); $event.target.value = '3'">
+                    <option value="3">{{ nav.chrome['service.size'] }}</option>
+                    <option value="2">2</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                  </select>
+                  <button type="button" @mousedown.prevent="format('bold')"><b>B</b></button>
+                  <button type="button" @mousedown.prevent="format('italic')"><i>I</i></button>
+                  <button type="button" @mousedown.prevent="format('underline')"><u>U</u></button>
+                  <button type="button" @mousedown.prevent="format('strikeThrough')"><s>S</s></button>
+                  <input class="rte-color" type="color" aria-label="color" @input="format('foreColor', $event.target.value)" />
+                  <button type="button" @mousedown.prevent="format('insertUnorderedList')">•</button>
+                  <button type="button" @mousedown.prevent="format('insertOrderedList')">1.</button>
+                  <button type="button" @mousedown.prevent="format('outdent')">←</button>
+                  <button type="button" @mousedown.prevent="format('indent')">→</button>
+                  <button type="button" @mousedown.prevent="insertLink()">↗</button>
+                  <button type="button" @mousedown.prevent="insertImage()">▣</button>
+                  <button type="button" @mousedown.prevent="format('insertHTML', '<table><tr><td>&nbsp;</td><td>&nbsp;</td></tr></table>')">▦</button>
+                  <button type="button" @mousedown.prevent="descriptionSource = !descriptionSource">{{ nav.chrome['service.source'] }}</button>
+                </div>
+                <div v-show="!descriptionSource" ref="descriptionEditor" class="rte-area" contenteditable="true" @input="values.description = $event.target.innerHTML"></div>
+                <textarea v-show="descriptionSource" v-model="values.description" class="rte-area" rows="8"></textarea>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.publicUrl'] }}</td>
+            <td class="service-inline">
+              <input id="publicUrl" v-model="values.publicUrl" class="flat" />
+              <button class="butAction" type="button" @click="openPublicUrl">↗</button>
+            </td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.duration'] }}</td>
+            <td class="service-inline">
+              <input id="durationValue" v-model="values.durationValue" class="flat service-short" type="number" min="0" step="1" />
+              <SearchableSelect id="durationUnit" v-model="values.durationUnit" :options="durationUnitOptions" :placeholder="''" />
+              <label><input v-model="values.dateRangeRequired" type="checkbox" /> {{ nav.chrome['service.dateRange'] }}</label>
+            </td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.privateNote'] }}</td>
+            <td><textarea id="privateNote" v-model="values.privateNote" class="flat" rows="4"></textarea></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.tags'] }}</td>
+            <td>
+              <div class="service-inline">
+                <input v-model="tagInput" class="flat" @keydown.enter.prevent="addTag" />
+                <button class="butAction" type="button" @click="addTag">+</button>
+              </div>
+              <div v-if="tagList.length" class="tag-list">
+                <span v-for="tag in tagList" :key="tag" class="tag-chip">{{ tag }}</span>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td colspan="2"><hr class="service-rule" /></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.price'] }}</td>
+            <td class="service-inline">
+              <input id="priceHt" v-model="values.priceHt" class="flat service-short" type="number" min="0" step="0.01" />
+              <SearchableSelect id="priceBasis" v-model="values.priceBasis" :options="priceBasisOptions" :placeholder="''" />
+            </td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.priceMin'] }}</td>
+            <td><input id="priceMin" v-model="values.priceMin" class="flat service-short" type="number" min="0" step="0.01" /></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.vat'] }}</td>
+            <td>
+              <SearchableSelect id="vatRate" v-model="values.vatRate" :options="vatRateOptions" :placeholder="''" />
+            </td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.sell'] }}</td>
+            <td><input id="sellAccount" v-model="values.sellAccount" class="flat" maxlength="32" /></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.sellIntra'] }}</td>
+            <td><input id="sellAccountIntra" v-model="values.sellAccountIntra" class="flat" maxlength="32" /></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.sellExport'] }}</td>
+            <td><input id="sellAccountExport" v-model="values.sellAccountExport" class="flat" maxlength="32" /></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.buy'] }}</td>
+            <td><input id="buyAccount" v-model="values.buyAccount" class="flat" maxlength="32" /></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.buyIntra'] }}</td>
+            <td><input id="buyAccountIntra" v-model="values.buyAccountIntra" class="flat" maxlength="32" /></td>
+          </tr>
+          <tr>
+            <td class="titlefield">{{ nav.chrome['service.buyImport'] }}</td>
+            <td><input id="buyAccountImport" v-model="values.buyAccountImport" class="flat" maxlength="32" /></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="tabsAction">
+        <button class="butAction" type="submit">{{ nav.chrome['action.save'] }}</button>
+        <router-link class="butActionDelete" :to="form.row.id ? `/screens/${form.screen.id}` : `/screens/${form.screen.id}`">{{ nav.chrome['action.cancel'] }}</router-link>
+        <button v-if="form.row.id" class="butActionDelete" type="button" @click="run(remove)">{{ nav.chrome['action.delete'] }}</button>
+      </div>
+    </form>
     <ThirdPartyForm v-else-if="party" :form="form" :values="values" @save="run(save)" @remove="run(remove)" />
-    <ContactForm v-else-if="contact" :form="form" :values="values" :editing="!contactViewing" @save="run(save)" @remove="run(remove)" />
     <div v-else class="tabBar">
       <form @submit.prevent="run(save)">
         <table class="border tableforfield">
@@ -668,8 +812,7 @@ watch(() => [route.params.id, route.params.rowId, route.query.mode, route.query.
             <tr v-for="field in form.screen.fields" :key="field.name">
               <td class="titlefield">{{ field.label }}</td>
               <td>
-                <RichEditor v-if="field.type === 'text' && rich(field.name)" :id="field.name" v-model="values[field.name]" compact />
-                <textarea v-else-if="field.type === 'text'" :id="field.name" v-model="values[field.name]" class="flat" :readonly="field.readOnly" :rows="!field.max || field.max > 255 ? 4 : 2" />
+                <textarea v-if="field.type === 'text'" :id="field.name" v-model="values[field.name]" class="flat" :readonly="field.readOnly" :rows="!field.max || field.max > 255 ? 4 : 2" />
                 <span v-else-if="field.type === 'boolean'" class="field-bool">
                   <label><input type="radio" :name="field.name" :value="true" v-model="values[field.name]" :disabled="field.readOnly" /> {{ nav.chrome['action.yes'] }}</label>
                   <label><input type="radio" :name="field.name" :value="false" v-model="values[field.name]" :disabled="field.readOnly" /> {{ nav.chrome['action.no'] }}</label>

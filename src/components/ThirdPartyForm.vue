@@ -439,8 +439,7 @@ async function submit() {
     </table>
     <div class="tabsAction">
       <button class="butAction" type="submit">{{ form.row.id ? t('action.save') : t('thirdparty.create') }}</button>
-      <router-link v-if="form.row.id" class="butActionDelete" :to="`/screens/${form.screen.id}/${form.row.id}`">{{ t('action.cancel') }}</router-link>
-      <router-link v-else class="butActionDelete" :to="`/screens/${form.screen.id}`">{{ t('action.cancel') }}</router-link>
+      <router-link class="butActionDelete" :to="`/screens/${form.screen.id}`">{{ t('action.cancel') }}</router-link>
       <button v-if="form.row.id" class="butActionDelete" type="button" @click="emit('remove')">{{ t('action.delete') }}</button>
     </div>
   </form>
